@@ -1,0 +1,1 @@
+"""CodeArtifact publisher stack."""
