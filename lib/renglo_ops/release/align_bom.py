@@ -945,7 +945,7 @@ def _align_gitconvoy(bom_root: Path, changes: list[dict[str, Any]], *, apply: bo
         return
     text = (
         "# git-convoy membership marker (repo root).\n"
-        "# role: product | ops | bom | incubating\n"
+        "# role: product | ops | bom | incubating | registry\n"
         'role = "bom"\n'
     )
     _write_text(path, text, apply=apply)
