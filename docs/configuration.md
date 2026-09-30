@@ -6,7 +6,7 @@ Every `renglo` command reads a **tenant file**, `renglo.yaml`. Most also need a 
 | --- | --- | --- |
 | `renglo.yaml` | Yes, in the BOM repository for the environment | Top level of the BOM checkout: `ops/acme-bom/renglo.yaml` |
 | `.renglo/local.yaml` | No, gitignored | Product workspace root, else the directory holding the BOM checkout: `ops/.renglo/local.yaml` |
-| `registry.yaml` | Yes, in a repository of the org that owns the registry | Project 2 only. No fixed path; you pass one. [Below](#registryyaml) |
+| `registry.yaml` | Yes, in a repository of the org that owns the registry | Project 2 only. No fixed path; you pass one. Start from [renglo/example-registry](https://github.com/renglo/example-registry). [Below](#registryyaml) |
 
 A **BOM repository** (bill of materials) is the repository that describes one environment: `renglo.yaml` plus the pinned versions and the deploy workflows, and no application code. You create it from the public template [renglo/example-bom](https://github.com/renglo/example-bom), as described in the [README](../README.md#first-time-setup).
 
@@ -209,7 +209,7 @@ It is a separate file from `renglo.yaml`, and deliberately not a section inside 
 
 ### Where to keep it
 
-Commit it in a repository belonging to the org that owns the registry's AWS account, one file per registry, and not inside an environment's BOM repo. Beyond that the location is yours: `renglo` has no default path for this file and never walks the tree looking for it.
+Commit it in a repository belonging to the org that owns the registry's AWS account, one file per registry, and not inside an environment's BOM repo. The public template [renglo/example-registry](https://github.com/renglo/example-registry) is that repository: copy it with GitHub's **Use this template**, then edit `registry.yaml`. If the checkout sits in a git-convoy workspace, keep `role = "registry"` in `gitconvoy.toml` so it is not treated as product, ops, or a BOM. Beyond that the location is yours: `renglo` has no default path for this file and never walks the tree looking for it.
 
 Two commands need it, and the path comes from the first of these that is set:
 
@@ -223,9 +223,31 @@ Two commands need it, and the path comes from the first of these that is set:
 
 The file is also written to, not only read: `renglo registry connect REPO --registry PATH` appends the repo's short name to `publish_repos` in place. Commit that change, then redeploy the registry so the publish role trusts the new repo.
 
-### Fields
+### Template
 
-`name` and `github_org` are required; the loader rejects the file without them. `publish_repos` and `reader_accounts` default to empty lists, `python` to `python-store` and `npm` to `npm-store`. The full table, with what each value controls in AWS, is in [project-2-registry.md](project-2-registry.md#registryyaml).
+```yaml
+name: acme
+github_org: acmeco
+publish_repos:
+  - data
+  - schd
+reader_accounts:
+  - '123456789012'
+python: python-store
+npm: npm-store
+```
+
+`name` and `github_org` are required; the loader rejects the file without them. `publish_repos` and `reader_accounts` default to empty lists, `python` to `python-store` and `npm` to `npm-store`.
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Short id. The stack is `<name>-publisher`; the CodeArtifact domain is a sanitized form of it |
+| `github_org` | GitHub org whose repos may publish |
+| `publish_repos` | Repo short names allowed to assume the publish role. `["*"]` trusts any repo in the org |
+| `reader_accounts` | AWS account ids allowed to install. Empty means same-account readers only |
+| `python` / `npm` | Repository names. Leave as `python-store` and `npm-store` unless you have a reason to change them |
+
+What each value creates in AWS is in [project-2-registry.md](project-2-registry.md#registryyaml).
 
 ---
 

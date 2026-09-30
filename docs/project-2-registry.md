@@ -1,19 +1,23 @@
 # Project 2 — Registry
 
-Goal: the private packages this environment runs can be installed **by version**, the way `requests` or `lodash` are, instead of cloned from a git repository at a pinned commit.
+Goal: the private packages this environment runs can be installed **by version**, instead of cloned from a git repository at a pinned commit.
 
 Prerequisite: [configuration.md](configuration.md).
 
 Two separate things happen in this project, and you may need only one of them:
 
-| Side | File you edit | Command |
-| --- | --- | --- |
-| **Host** a registry for code your org owns | `registry.yaml` | `renglo registry deploy` |
+
+| Side                                                            | File you edit                 | Command                           |
+| --------------------------------------------------------------- | ----------------------------- | --------------------------------- |
+| **Host** a registry for code your org owns                      | `registry.yaml`               | `renglo registry deploy`          |
 | **Read** from a registry somebody else owns, including Renglo's | `registries` in `renglo.yaml` | `renglo stack deploy` picks it up |
+
 
 Skip this project entirely when every package the environment installs comes from public PyPI and npmjs. Nothing in Project 1 or Project 3 requires a registry you host.
 
 ---
+
+
 
 ## Why a registry instead of git
 
@@ -26,14 +30,18 @@ Cloning a private repository breaks down as soon as:
 
 Cloning git is how code is written. The registry is how it is distributed.
 
-| Artifact | Repository | Example |
-| --- | --- | --- |
-| Python package: handlers, APIs, blueprints inside the wheel | CodeArtifact `python-store` | `renglo-data` |
-| UI package: console screens and widgets | CodeArtifact `npm-store` | `@renglo/data` |
+
+| Artifact                                                    | Repository                  | Example        |
+| ----------------------------------------------------------- | --------------------------- | -------------- |
+| Python package: handlers, APIs, blueprints inside the wheel | CodeArtifact `python-store` | `renglo-data`  |
+| UI package: console screens and widgets                     | CodeArtifact `npm-store`    | `@renglo/data` |
+
 
 Platform libraries use the same pipeline: tag, package, registry. A running application is never published; an environment installs packages into itself.
 
 ---
+
+
 
 ## Read from a registry you do not own
 
@@ -71,19 +79,23 @@ A row **without** `account` is a domain in this environment's own account; same-
 
 ---
 
+
+
 ## Host a registry
 
 Use the AWS account and region that will **own** the packages. That is frequently not the account running the hub.
 
 ### What the stack creates
 
-| Resource | Name |
-| --- | --- |
-| CloudFormation stack | `<name>-publisher` |
-| CodeArtifact domain | sanitized `name` (letters, digits, hyphens) |
-| Repositories | `python-store` (upstream public PyPI), `npm-store` (upstream public npmjs) |
-| IAM role | `GitHubActionsPublishRole-<name>` |
-| SSM | `/publisher/<name>/config` — domain and repo names the workflows read |
+
+| Resource             | Name                                                                       |
+| -------------------- | -------------------------------------------------------------------------- |
+| CloudFormation stack | `<name>-publisher`                                                         |
+| CodeArtifact domain  | sanitized `name` (letters, digits, hyphens)                                |
+| Repositories         | `python-store` (upstream public PyPI), `npm-store` (upstream public npmjs) |
+| IAM role             | `GitHubActionsPublishRole-<name>`                                          |
+| SSM                  | `/publisher/<name>/config` — domain and repo names the workflows read      |
+
 
 `reader_accounts` adds a CodeArtifact resource policy so those accounts may call `GetAuthorizationToken` and `ReadFromRepository`. Each reading account still needs its own IAM for `codeartifact:GetAuthorizationToken`, `sts:GetServiceBearerToken`, and `ReadFromRepository`; on the environment side that is the `registries` row above.
 
@@ -94,26 +106,32 @@ Several registries can share one AWS account. Each `name` gets its own stack, do
 Fill this in before the first deploy. Later changes take effect when you redeploy.
 
 ```yaml
-name: renglo
-github_org: renglo
+name: <publisher-name>
+github_org: <publisher-gh-org>
 publish_repos:
-  - renglo-lib
-  - data
+  - <repo-name-a>
+  - <repo-name-b>
 reader_accounts:
-  - "858045071584"
+  - "<aws-accounts-that-can-read-this-registry>"
 python: python-store
 npm: npm-store
 ```
 
-| Field | What to set |
-| --- | --- |
-| `name` | Short name of this registry. The stack is `<name>-publisher`, and the CodeArtifact domain is a sanitized form of it |
-| `github_org` | GitHub org that owns the product repos |
-| `publish_repos` | Repo short names allowed to assume the publish role. `["*"]` trusts any repo in the org. The role trusts both the classic subject (`repo:org/name`) and GitHub's immutable subject (`repo:org@id/name@id`); repos created after 15 Jul 2026 use the latter |
-| `reader_accounts` | AWS account ids allowed to `pip` / `npm` install. Empty means same-account readers only |
-| `python` / `npm` | Repository names. Leave them as `python-store` and `npm-store` without a reason to change |
 
-Commit it in a repository owned by the org that owns this AWS account, not inside an environment's BOM repo — one registry serves many environments. There is no default path: every command that touches the file is told where it is, as described in [configuration.md](configuration.md#registryyaml).
+| Field             | What to set                                                                                                                                                                                                                                                |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`            | Short name of this registry. The stack is `<name>-publisher`, and the CodeArtifact domain is a sanitized form of it                                                                                                                                        |
+| `github_org`      | GitHub org that owns the product repos                                                                                                                                                                                                                     |
+| `publish_repos`   | Repo short names allowed to assume the publish role. `["*"]` trusts any repo in the org. The role trusts both the classic subject (`repo:org/name`) and GitHub's immutable subject (`repo:org@id/name@id`); repos created after 15 Jul 2026 use the latter |
+| `reader_accounts` | AWS account ids allowed to `pip` / `npm` install. Empty means same-account readers only                                                                                                                                                                    |
+| `python` / `npm`  | Repository names. Leave them as `python-store` and `npm-store` without a reason to change                                                                                                                                                                  |
+
+
+Start from the public template **[renglo/example-registry](https://github.com/renglo/example-registry)**: on GitHub, click **Use this template**, and name the copy something like `<org>-publisher` (for example `apollo-publisher`). That repository holds `registry.yaml` and nothing else. It is not an environment BOM and it does not need application code.
+
+The GitHub repo name and the `name` field are different things. `name` is the CodeArtifact domain and the CloudFormation prefix: `name: apollo` deploys stack `apollo-publisher`. If you set `name: apollo-publisher`, the stack becomes `apollo-publisher-publisher`. Keep `name` short (`apollo`, `renglo`) and put the word publisher in the GitHub repo if you want.
+
+Commit the file in an org that owns the registry AWS account, not inside an environment's BOM. There is no default path: every command that touches the file is told where it is, as described in [configuration.md](configuration.md#registryyaml).
 
 ### Deploy it
 
@@ -145,6 +163,8 @@ registry: /absolute/path/to/registry.yaml
 
 ---
 
+
+
 ## Connect a product repository
 
 Publishing is enabled per repository, and two gates must both allow it:
@@ -162,6 +182,8 @@ Workflows call AWS in the same region as `<name>-publisher`.
 aws configure get region --profile "$AWS_PROFILE"
 ```
 
+
+
 ### 2. Stack outputs
 
 Run once. The same values go into every repo you connect.
@@ -177,15 +199,21 @@ aws cloudformation describe-stacks \
   --output table
 ```
 
+
+
 ### 3. Repository variables
 
 In GitHub: that repo → Settings → Secrets and variables → Actions → Variables.
 
-| Variable | Value |
-| --- | --- |
-| `AWS_PUBLISH_ROLE_ARN` | `OidcPublishRoleArn` from the stack |
-| `PUBLISHER_NAME` | `PublisherName`, the `name` in `registry.yaml` |
-| `AWS_REGION` | The region from step 1 |
+
+| Variable               | Value                                          |
+| ---------------------- | ---------------------------------------------- |
+| `AWS_PUBLISH_ROLE_ARN` | `OidcPublishRoleArn` from the stack            |
+| `PUBLISHER_NAME`       | `PublisherName`, the `name` in `registry.yaml` |
+| `AWS_REGION`           | The region from step 1                         |
+
+
+
 
 ### 4. Workflow file
 
@@ -213,10 +241,12 @@ The `@v0.1.0` ref is the `renglo-ops` release that contains the workflow. `--ver
 
 The reusable workflow publishes whichever trees exist:
 
-| Tree | Result |
-| --- | --- |
+
+| Tree                     | Result                         |
+| ------------------------ | ------------------------------ |
 | `package/pyproject.toml` | Python wheel to `python-store` |
-| `ui/package.json` | npm package to `npm-store` |
+| `ui/package.json`        | npm package to `npm-store`     |
+
 
 A missing tree skips that job, and one tag publishes both when both exist. Repo-root `blueprints/*.json` are copied into the Python package before the build, so the wheel carries the blueprints of that tag. Python-only and npm-only repos that are not extensions can call `publish-python.yml` or `publish-npm.yml` the same way (`workflow_call`, `secrets: inherit`).
 
@@ -225,6 +255,8 @@ A missing tree skips that job, and one tag publishes both when both exist. Repo-
 Tags publish only to CodeArtifact unless a repo asks for a public index. On the caller, pass `publish_public: true` and set the `PYPI_API_TOKEN` and `NPM_TOKEN` secrets on that repo. A public release is not something you take back; publish a newer version instead. Leave it off for proprietary code.
 
 ---
+
+
 
 ## Release a version
 
@@ -266,6 +298,8 @@ Empty output means that version is not in the store.
 
 ---
 
+
+
 ## How an environment installs it
 
 The environment needs its account in `reader_accounts` and a pin in its BOM. The deploy logs in and installs:
@@ -282,6 +316,8 @@ pip install "renglo-data==1.4.0"
 Moving to 1.5.0 is a bump of the pin, not a re-clone.
 
 ---
+
+
 
 ## Next
 
