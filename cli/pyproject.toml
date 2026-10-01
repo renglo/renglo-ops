@@ -6,7 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "renglo"
 version = "0.1.1"
 description = "Renglo environment command"
-readme = "README.md"
 requires-python = ">=3.12"
 dependencies = ["pyyaml>=6.0", "renglo-ops"]
 
@@ -19,8 +18,4 @@ renglo = "renglo.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["renglo*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["lib", "."]
+include = ["renglo"]
