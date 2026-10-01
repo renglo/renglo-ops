@@ -16,7 +16,6 @@ PATHS: dict[str, list[str]] = {
         "renglo registry show",
         "renglo registry check PACKAGE VERSION",
         "renglo publish",
-        "renglo config import",
     ],
     "extensions": [
         "renglo state show",
@@ -58,7 +57,6 @@ BLURBS = {
     "show": "Print the loaded tenant document.",
     "local-config": "Write env_config.py and console/.env.development in the product workspace.",
     "deploy": "Synth (and, without --dry-run, cdk deploy) hub, peer, or registry stacks.",
-    "import": "Write renglo.yaml and registry.yaml from the old config files. One time.",
     "check": "Validate renglo.yaml and compare github.repo with the BOM checkout.",
     "publish": "Build and upload the package in the current directory.",
 }

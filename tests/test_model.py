@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import yaml
@@ -7,7 +6,6 @@ from renglo.cli import main
 from renglo.help import PATHS, render
 from renglo_ops.image import materialize
 from renglo_ops.model.errors import RengloOpsError
-from renglo_ops.model.import_legacy import import_legacy
 from renglo_ops.model.legacy import customer_config_dict, deploy_targets_dict
 from renglo_ops.model.local import is_tool_checkout, refuse_tool_output
 from renglo_ops.model.tenant import (
@@ -20,96 +18,67 @@ from renglo_ops.model.tenant import (
 from renglo_ops.release.catalog import catalog_data
 
 
-def _write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-
-
-def test_import_maps_github_and_foreign_registry(tmp_path: Path) -> None:
-    _write(
-        tmp_path / "customer-config.json",
-        json.dumps(
-            {
-                "env_name": "apollo1",
-                "github_repo": "teamamericaai/apollo-bom",
-                "github_owner_id": "327216445",
-                "github_repo_id": "1392981742",
-                "enable_staging": True,
-                "email_from": "apollo_noreply@teamamericany.com",
-                "email_identity_type": "email",
-                "package_registry": {"domain_owners": ["339713094352"]},
-            }
-        ),
-    )
-    _write(
-        tmp_path / "deploy_targets.yml",
-        """
-bom: 0.1.0
-console_bom: 0.1.0
-hub:
-  python: [renglo-data]
-helper:
-  ref: main
-registries:
-  - domain: apollo
-    python_repository: python-store
-    npm_repository: npm-store
-    npm_scopes: ["@apollo"]
-  - domain: renglo
-    domain_owner: "339713094352"
-    python_repository: python-store
-    npm_repository: npm-store
-    npm_scopes: ["@renglo"]
-packages:
-  renglo-lib:
-    python: renglo-lib
-tenants:
-  apollo1:
-    aws_account: "858045071584"
-    aws_region: us-east-1
-    stages:
-      staging:
-        enabled: true
-      production:
-        enabled: false
-""",
-    )
-    _write(tmp_path / "platform_env.yml", "APP_FE_BASE_URL: https://console.example.com\n")
-    _write(
-        tmp_path / "publisher-config.json",
-        json.dumps(
-            {
-                "publisher_name": "apollo",
-                "github_org": "teamamericaai",
-                "github_publish_repos": ["apollo-wl"],
-                "reader_aws_accounts": [],
-            }
-        ),
-    )
-    tenant, registry = import_legacy(
-        customer_config=tmp_path / "customer-config.json",
-        deploy_targets=tmp_path / "deploy_targets.yml",
-        platform_env=tmp_path / "platform_env.yml",
-        publisher_config=tmp_path / "publisher-config.json",
+def test_tenant_projects_legacy_catalog_shapes() -> None:
+    tenant = tenant_from_dict(
+        {
+            "name": "apollo1",
+            "github": {
+                "repo": "teamamericaai/apollo-bom",
+                "owner_id": "327216445",
+                "repo_id": "1392981742",
+            },
+            "email": {"from": "apollo_noreply@teamamericany.com", "identity": "email"},
+            "platform": "0.1.0",
+            "accounts": {
+                "staging": {"id": "858045071584", "region": "us-east-1", "enabled": True},
+                "production": {"id": "858045071584", "region": "us-east-1", "enabled": False},
+            },
+            "registries": [
+                {
+                    "domain": "apollo",
+                    "python": "python-store",
+                    "npm": "npm-store",
+                    "scopes": ["@apollo"],
+                },
+                {
+                    "domain": "renglo",
+                    "python": "python-store",
+                    "npm": "npm-store",
+                    "account": "339713094352",
+                    "scopes": ["@renglo"],
+                },
+            ],
+            "placement": {"hub": ["renglo-data"], "peers": {}},
+            "packages": {"renglo-lib": {"python": "renglo-lib"}},
+            "release": {"bom": "0.1.0", "console": "0.1.0"},
+            "env": {"APP_FE_BASE_URL": "https://console.example.com"},
+        }
     )
     assert tenant.github_repo == "teamamericaai/apollo-bom"
     assert tenant.foreign_domain_owners() == ["339713094352"]
     assert customer_config_dict(tenant)["package_registry"]["domain_owners"] == ["339713094352"]
     assert tenant.env["APP_FE_BASE_URL"] == "https://console.example.com"
-    assert registry is not None and registry.name == "apollo"
     projected = deploy_targets_dict(tenant)
     assert projected["tenants"]["apollo1"]["aws_account"] == "858045071584"
     assert projected["registries"][1]["domain_owner"] == "339713094352"
 
 
-def test_round_trip(tmp_path: Path) -> None:
-    tenant, _registry = import_legacy(
-        customer_config=_fixture_customer(tmp_path),
-        deploy_targets=_fixture_targets(tmp_path),
+def test_renglo_yaml_round_trip(tmp_path: Path) -> None:
+    tenant = tenant_from_dict(
+        {
+            "name": "apollo1",
+            "github": {"repo": "teamamericaai/apollo-bom"},
+            "email": {"from": "a@b.c", "identity": "email"},
+            "accounts": {
+                "staging": {"id": "858045071584", "region": "us-east-1", "enabled": True},
+                "production": {"enabled": False},
+            },
+            "placement": {"hub": ["renglo-data"], "peers": {}},
+            "release": {"bom": "0.1.0", "console": "0.1.0"},
+        }
     )
-    text = dump_tenant(tenant)
     path = tmp_path / "renglo.yaml"
-    path.write_text(text, encoding="utf-8")
+    path.write_text(dump_tenant(tenant), encoding="utf-8")
     loaded = load_tenant(path)
     assert tenant_to_dict(loaded)["github"]["repo"] == "teamamericaai/apollo-bom"
     data = catalog_data(tmp_path)
@@ -275,40 +244,3 @@ def test_invalid_identity_rejected() -> None:
     raise AssertionError("expected rejection")
 
 
-def _fixture_customer(tmp_path: Path) -> Path:
-    path = tmp_path / "customer-config.json"
-    path.write_text(
-        json.dumps(
-            {
-                "env_name": "apollo1",
-                "github_repo": "teamamericaai/apollo-bom",
-                "email_from": "a@b.c",
-                "email_identity_type": "email",
-                "package_registry": {"domain_owners": []},
-            }
-        ),
-        encoding="utf-8",
-    )
-    return path
-
-
-def _fixture_targets(tmp_path: Path) -> Path:
-    path = tmp_path / "deploy_targets.yml"
-    path.write_text(
-        yaml.safe_dump(
-            {
-                "bom": "0.1.0",
-                "console_bom": "0.1.0",
-                "hub": {"python": ["renglo-data"]},
-                "tenants": {
-                    "apollo1": {
-                        "aws_account": "858045071584",
-                        "aws_region": "us-east-1",
-                        "stages": {"staging": {"enabled": True}, "production": {"enabled": False}},
-                    }
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    return path

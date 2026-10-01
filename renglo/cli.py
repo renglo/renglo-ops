@@ -11,7 +11,6 @@ from pathlib import Path
 
 from renglo.help import render
 from renglo_ops.model.errors import RengloOpsError
-from renglo_ops.model.import_legacy import import_legacy, write_import
 from renglo_ops.model.local import find_local, load_local, refuse_tool_output, workspace_root
 from renglo_ops.model.registry import load_registry
 from renglo_ops.model.tenant import (
@@ -102,25 +101,6 @@ def _cmd_local_config(args: argparse.Namespace) -> int:
     )
     for key, value in written.items():
         print(f"{key}: {value}")
-    return 0
-
-
-def _cmd_import(args: argparse.Namespace) -> int:
-    tenant, registry = import_legacy(
-        customer_config=Path(args.customer_config) if args.customer_config else None,
-        deploy_targets=Path(args.deploy_targets) if args.deploy_targets else None,
-        platform_env=Path(args.platform_env) if args.platform_env else None,
-        platform_defaults=Path(args.platform_defaults) if args.platform_defaults else None,
-        publisher_config=Path(args.publisher_config) if args.publisher_config else None,
-    )
-    written = write_import(
-        tenant,
-        registry,
-        tenant_path=Path(args.output),
-        registry_path=Path(args.registry_output) if args.registry_output and registry else None,
-    )
-    for path in written:
-        print(path)
     return 0
 
 
@@ -795,14 +775,6 @@ def main(argv: list[str] | None = None) -> int:
     config = sub.add_parser("config")
     config_sub = config.add_subparsers(dest="config_cmd")
     _init_flags(config_sub.add_parser("init"))
-    imported = config_sub.add_parser("import")
-    imported.add_argument("--customer-config", default="")
-    imported.add_argument("--deploy-targets", default="")
-    imported.add_argument("--platform-env", default="")
-    imported.add_argument("--platform-defaults", default="")
-    imported.add_argument("--publisher-config", default="")
-    imported.add_argument("--output", required=True)
-    imported.add_argument("--registry-output", default="")
     config_sub.add_parser("check")
 
     stack = sub.add_parser("stack")
@@ -928,8 +900,6 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_config_init(args)
         if args.cmd == "config" and args.config_cmd == "init":
             return _cmd_config_init(args)
-        if args.cmd == "config" and args.config_cmd == "import":
-            return _cmd_import(args)
         if args.cmd == "config" and args.config_cmd == "check":
             return _cmd_check()
         if args.cmd == "stack" and args.stack_cmd == "deploy":
