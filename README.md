@@ -153,7 +153,7 @@ Found by the same walk up, which is why running `renglo` from the BOM checkout o
 
 [Project 2](docs/project-2-registry.md) only, and the one file with no location of its own, because nothing ever searches for it. You give the path, and the first of these wins:
 
-1. `--registry PATH` on `renglo registry deploy` or `renglo registry show`
+1. `--registry PATH` on `renglo registry deploy`, `renglo registry show`, or `renglo registry check`
 2. `RENGLO_REGISTRY` in the environment
 3. `registry:` in `.renglo/local.yaml`, which is how you stop typing the flag
 
@@ -235,6 +235,10 @@ Synths the registry stack from `registry.yaml`, then runs `cdk deploy`. Without 
 ### `renglo registry show [--registry PATH] [--region REGION]`
 
 Reads the deployed publisher stack in AWS and prints outputs plus the GitHub Actions variables for product repos. Uses the same registry path resolution as deploy. Pass `--profile` or `AWS_PROFILE` for the **registry** account (not the hub). Refuses the `default` profile.
+
+### `renglo registry check PACKAGE VERSION [--format python|npm] [--registry PATH] [--region REGION]`
+
+Asks CodeArtifact whether that version is published. Exit 0 when a revision is `Published`; exit 1 when the package or version is absent, or present but not published. A name starting with `@` is checked as npm; otherwise it is a Python package. A leading `v` on the version is ignored, so `v1.0.1` checks `1.0.1`. Uses the same registry path and AWS profile as `renglo registry show`.
 
 ### `renglo publish [--path DIR] [--dry-run]`
 

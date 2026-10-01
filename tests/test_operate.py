@@ -8,7 +8,9 @@ from renglo.operate import (
     extension_rows,
     format_extension_tree,
     format_peer_list,
+    format_registry_check,
     format_registry_show,
+    package_coordinates,
     parse_stacks,
     refuse_destroy_a_while_b_exists,
 )
@@ -126,6 +128,152 @@ def test_format_registry_show_outputs() -> None:
     )
     assert "AWS_PUBLISH_ROLE_ARN: arn:aws:iam::1:role/x" in text
     assert "PUBLISHER_NAME: apollo" in text
+
+
+class _Versions:
+    def __init__(self, pages: list[dict], error: Exception | None = None) -> None:
+        self.pages = pages
+        self.error = error
+        self.calls: list[dict] = []
+
+    def list_package_versions(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.error:
+            raise self.error
+        index = 0
+        token = kwargs.get("nextToken") or ""
+        if token:
+            index = int(token)
+        return self.pages[index]
+
+
+class _AwsError(Exception):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.response = {"Error": {"Code": code, "Message": message}}
+
+
+def _registry() -> Registry:
+    return Registry(
+        name="apollo",
+        github_org="acmeco",
+        python="python-store",
+        npm="npm-store",
+        path=Path("/tmp/registry.yaml"),
+    )
+
+
+def test_package_coordinates() -> None:
+    assert package_coordinates("Apollo_TourbotLink", "") == ("pypi", "", "apollo-tourbotlink")
+    assert package_coordinates("@apollo/tourbotlink", "") == ("npm", "apollo", "tourbotlink")
+    assert package_coordinates("tourbotlink", "npm") == ("npm", "", "tourbotlink")
+    try:
+        package_coordinates("@apollo", "")
+    except RengloOpsError:
+        return
+    raise AssertionError("expected refusal")
+
+
+def test_format_registry_check_published() -> None:
+    client = _Versions(
+        [
+            {"versions": [{"version": "0.1.0", "status": "Published"}], "nextToken": ""},
+        ]
+    )
+    text, published = format_registry_check(
+        _registry(),
+        client,
+        package="Apollo_TourbotLink",
+        version="v0.1.0",
+        fmt="",
+        account_id="111122223333",
+        region="us-east-1",
+    )
+    assert published
+    assert "result: published" in text
+    assert "package: apollo-tourbotlink" in text
+    assert "version: 0.1.0" in text
+    assert client.calls[0]["format"] == "pypi"
+    assert client.calls[0]["repository"] == "python-store"
+    assert client.calls[0]["domain"] == "apollo"
+
+
+def test_format_registry_check_npm_and_absent() -> None:
+    missing = _AwsError("ResourceNotFoundException", "Package '@apollo/ui' was not found")
+    client = _Versions([], error=missing)
+    text, published = format_registry_check(
+        _registry(),
+        client,
+        package="@apollo/ui",
+        version="1.2.3",
+        fmt="",
+        account_id="111122223333",
+        region="us-east-1",
+    )
+    assert not published
+    assert "result: absent" in text
+    assert client.calls[0]["namespace"] == "apollo"
+    assert client.calls[0]["format"] == "npm"
+    assert client.calls[0]["repository"] == "npm-store"
+
+
+def test_format_registry_check_not_published() -> None:
+    client = _Versions(
+        [{"versions": [{"version": "0.1.0", "status": "Unfinished"}]}]
+    )
+    text, published = format_registry_check(
+        _registry(),
+        client,
+        package="apollo-tourbotlink",
+        version="0.1.0",
+        fmt="python",
+        account_id="111122223333",
+        region="us-east-1",
+    )
+    assert not published
+    assert "result: not published" in text
+    assert "status: Unfinished" in text
+
+
+def test_format_registry_check_other_resource_error() -> None:
+    client = _Versions([], error=_AwsError("ResourceNotFoundException", "Domain not found"))
+    try:
+        format_registry_check(
+            _registry(),
+            client,
+            package="apollo-tourbotlink",
+            version="0.1.0",
+            fmt="python",
+            account_id="111122223333",
+            region="us-east-1",
+        )
+    except RengloOpsError as exc:
+        assert "Domain not found" in str(exc)
+    else:
+        raise AssertionError("expected refusal")
+
+
+def test_registry_check_refuses_default_profile(tmp_path: Path, capsys) -> None:
+    registry = tmp_path / "registry.yaml"
+    registry.write_text("name: apollo\ngithub_org: acme\n", encoding="utf-8")
+    try:
+        main(
+            [
+                "--profile",
+                "default",
+                "registry",
+                "check",
+                "apollo-tourbotlink",
+                "0.1.0",
+                "--registry",
+                str(registry),
+            ]
+        )
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("expected refusal")
+    assert "named AWS profile" in capsys.readouterr().err
 
 
 def test_refuse_destroy_a_while_b_exists() -> None:

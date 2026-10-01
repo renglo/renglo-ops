@@ -8,6 +8,7 @@ already writes platform-vars; there is no second publisher.
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from typing import Any
@@ -15,7 +16,7 @@ from typing import Any
 from renglo_ops.cdk.hub.stack_names import stack_a_id, stack_b_id
 from renglo_ops.cdk.shared.config_builder import ssm_platform_vars_path
 from renglo_ops.model.errors import RengloOpsError
-from renglo_ops.model.registry import Registry
+from renglo_ops.model.registry import Registry, sanitize_domain_name
 from renglo_ops.model.tenant import Tenant
 from renglo_ops.release.peers import peer_stack_name
 
@@ -218,6 +219,142 @@ def format_registry_show(
     lines.append(f"  PUBLISHER_NAME: {publisher}")
     lines.append(f"  AWS_REGION: {region}")
     return "\n".join(lines) + "\n"
+
+
+def canonical_package_version(version: str) -> str:
+    """Version string as published. A leading v on a numeric version is the git tag, not the artifact."""
+    text = version.strip()
+    if len(text) >= 2 and text[0] in "vV" and text[1].isdigit():
+        return text[1:]
+    return text
+
+
+def resolve_package_format(package: str, fmt: str) -> str:
+    chosen = (fmt or "").strip().lower()
+    if chosen in {"python", "pypi"}:
+        return "python"
+    if chosen == "npm":
+        return "npm"
+    if chosen:
+        raise RengloOpsError("--format must be python or npm")
+    if package.strip().startswith("@"):
+        return "npm"
+    return "python"
+
+
+def package_coordinates(package: str, fmt: str) -> tuple[str, str, str]:
+    """Return CodeArtifact (format, namespace, package) for a distribution name."""
+    kind = resolve_package_format(package, fmt)
+    name = package.strip()
+    if not name:
+        raise RengloOpsError("package name is required")
+    if kind == "npm":
+        namespace = ""
+        pkg = name
+        if name.startswith("@"):
+            if "/" not in name[1:]:
+                raise RengloOpsError(f"npm package must look like @scope/name, got {name}")
+            namespace, pkg = name[1:].split("/", 1)
+            namespace = namespace.strip()
+            pkg = pkg.strip()
+            if not namespace or not pkg or "/" in pkg:
+                raise RengloOpsError(f"npm package must look like @scope/name, got {name}")
+        elif "/" in name:
+            raise RengloOpsError(f"npm package must look like @scope/name, got {name}")
+        return "npm", namespace, pkg
+    normalized = re.sub(r"[-_.]+", "-", name).lower()
+    if not normalized:
+        raise RengloOpsError("package name is required")
+    return "pypi", "", normalized
+
+
+def _error_code(exc: Exception) -> str:
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        return str((response.get("Error") or {}).get("Code") or "")
+    return ""
+
+
+def format_registry_check(
+    registry: Registry,
+    codeartifact: Any,
+    *,
+    package: str,
+    version: str,
+    fmt: str,
+    account_id: str,
+    region: str,
+) -> tuple[str, bool]:
+    """Look up one package version in this registry's CodeArtifact repository.
+
+    The bool is true only when a revision of that version is Published.
+    """
+    artifact_format, namespace, pkg = package_coordinates(package, fmt)
+    looked_up = canonical_package_version(version)
+    if not looked_up:
+        raise RengloOpsError("version is required")
+    domain = sanitize_domain_name(registry.name)
+    repository = registry.npm if artifact_format == "npm" else registry.python
+    lines = [
+        f"registry file: {registry.path}",
+        f"domain: {domain}",
+        f"repository: {repository}",
+        f"format: {artifact_format}",
+        f"package: {pkg}",
+    ]
+    if namespace:
+        lines.append(f"namespace: {namespace}")
+    if pkg != package.strip():
+        lines.append(f"requested: {package.strip()}")
+    lines.append(f"version: {looked_up}")
+    if looked_up != version.strip():
+        lines.append(f"requested version: {version.strip()}")
+    lines.append(f"account: {account_id}")
+    lines.append(f"region: {region}")
+
+    kwargs: dict[str, str] = {
+        "domain": domain,
+        "domainOwner": account_id,
+        "repository": repository,
+        "format": artifact_format,
+        "package": pkg,
+    }
+    if namespace:
+        kwargs["namespace"] = namespace
+    versions: list[dict[str, Any]] = []
+    token = ""
+    try:
+        while True:
+            call = dict(kwargs)
+            if token:
+                call["nextToken"] = token
+            page = codeartifact.list_package_versions(**call)
+            versions.extend(page.get("versions") or [])
+            token = str(page.get("nextToken") or "")
+            if not token:
+                break
+    except Exception as exc:
+        code = _error_code(exc)
+        message = str(exc)
+        if code == "ResourceNotFoundException" and "package" in message.lower():
+            lines.append("result: absent")
+            return "\n".join(lines) + "\n", False
+        if code:
+            raise RengloOpsError(message) from exc
+        raise
+
+    matches = [row for row in versions if str(row.get("version") or "") == looked_up]
+    statuses = sorted({str(row.get("status") or "UNKNOWN") for row in matches})
+    if "Published" in statuses:
+        lines.append("status: Published")
+        lines.append("result: published")
+        return "\n".join(lines) + "\n", True
+    if statuses:
+        lines.append(f"status: {', '.join(statuses)}")
+        lines.append("result: not published")
+        return "\n".join(lines) + "\n", False
+    lines.append("result: absent")
+    return "\n".join(lines) + "\n", False
 
 
 def stack_state(cfn: Any, name: str) -> str:

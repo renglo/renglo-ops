@@ -14,6 +14,7 @@ PATHS: dict[str, list[str]] = {
     "registry": [
         "renglo registry deploy",
         "renglo registry show",
+        "renglo registry check PACKAGE VERSION",
         "renglo publish",
         "renglo config import",
     ],

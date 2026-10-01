@@ -124,6 +124,7 @@ def test_help_paths_are_filters() -> None:
     assert "registry" in PATHS
     assert "renglo registry deploy" in render("registry")
     assert "renglo registry show" in render("registry")
+    assert "renglo registry check PACKAGE VERSION" in render("registry")
 
 
 def test_refuse_writing_into_the_tool() -> None:

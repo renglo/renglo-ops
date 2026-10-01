@@ -107,7 +107,7 @@ region: us-east-1
 | `tenant` | Yes | Path from the workspace root to the directory holding `renglo.yaml`. `.` when they are the same directory |
 | `profile` | Recommended | AWS CLI profile for the account that runs the hub |
 | `region` | Recommended | Default region when a command needs one and `AWS_REGION` is unset |
-| `registry` | Project 2 only | Absolute path to `registry.yaml`, so `renglo registry deploy` can omit `--registry` |
+| `registry` | Project 2 only | Absolute path to `registry.yaml`, so `renglo registry deploy`, `show`, and `check` can omit `--registry` |
 
 Profile resolution order: `--profile` on the command, then `AWS_PROFILE`, then `profile` here.
 
@@ -211,15 +211,15 @@ It is a separate file from `renglo.yaml`, and deliberately not a section inside 
 
 Commit it in a repository belonging to the org that owns the registry's AWS account, one file per registry, and not inside an environment's BOM repo. The public template [renglo/example-registry](https://github.com/renglo/example-registry) is that repository: copy it with GitHub's **Use this template**, then edit `registry.yaml`. If the checkout sits in a git-convoy workspace, keep `role = "registry"` in `gitconvoy.toml` so it is not treated as product, ops, or a BOM. Beyond that the location is yours: `renglo` has no default path for this file and never walks the tree looking for it.
 
-Two commands need it, and the path comes from the first of these that is set:
+The registry commands need it, and the path comes from the first of these that is set:
 
 | Source | Notes |
 | --- | --- |
-| `--registry PATH` | Optional on `renglo registry deploy` and `renglo registry show` |
+| `--registry PATH` | Optional on `renglo registry deploy`, `renglo registry show`, and `renglo registry check` |
 | `RENGLO_REGISTRY` | Absolute path in the environment. The CDK app reads this variable, so it is also what `--registry` ends up setting |
 | `registry:` in `.renglo/local.yaml` | Make it absolute: a relative value resolves against the current directory, not the workspace root |
 
-Both commands exit with `pass --registry PATH or set registry in .renglo/local.yaml` when all three are empty.
+Those commands exit with `pass --registry PATH or set registry in .renglo/local.yaml` when all three are empty.
 
 You edit `registry.yaml` by hand. Adding a repo to `publish_repos` is a commit in the registry repository followed by `renglo registry deploy`, so the publish role trusts the new repo.
 

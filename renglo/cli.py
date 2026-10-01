@@ -495,6 +495,30 @@ def _cmd_registry_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_registry_check(args: argparse.Namespace) -> int:
+    from renglo.operate import format_registry_check
+
+    registry = load_registry(_resolve_registry_path(args.registry))
+    profile, region = _profile_region()
+    profile = _require_named_aws_profile(args.profile or profile, verb="check")
+    region = (args.region or region or os.environ.get("AWS_REGION", "")).strip()
+    session = _aws_session(profile, region)
+    if not region:
+        region = session.region_name or "us-east-1"
+    account = session.client("sts").get_caller_identity()["Account"]
+    text, published = format_registry_check(
+        registry,
+        session.client("codeartifact"),
+        package=args.package,
+        version=args.version,
+        fmt=args.format,
+        account_id=str(account),
+        region=region,
+    )
+    print(text, end="")
+    return 0 if published else 1
+
+
 def _cmd_publish(args: argparse.Namespace) -> int:
     package = Path(args.path).resolve()
     command = [sys.executable, "-m", "build", str(package)]
@@ -859,6 +883,26 @@ def main(argv: list[str] | None = None) -> int:
     )
     registry_show.add_argument("--registry", default="")
     registry_show.add_argument("--region", default="")
+    registry_check = registry_sub.add_parser(
+        "check",
+        help="See whether a package version is published in this registry",
+    )
+    registry_check.add_argument(
+        "package",
+        help="Python name, or an npm name such as @scope/pkg",
+    )
+    registry_check.add_argument(
+        "version",
+        help="Version in pyproject.toml or package.json; a leading v is ignored",
+    )
+    registry_check.add_argument(
+        "--format",
+        default="",
+        choices=("python", "npm"),
+        help="python or npm; a leading @ is npm",
+    )
+    registry_check.add_argument("--registry", default="")
+    registry_check.add_argument("--region", default="")
 
     publish = sub.add_parser("publish")
     publish.add_argument("--path", default=".")
@@ -928,6 +972,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_registry_deploy(args)
         if args.cmd == "registry" and args.registry_cmd == "show":
             return _cmd_registry_show(args)
+        if args.cmd == "registry" and args.registry_cmd == "check":
+            return _cmd_registry_check(args)
         if args.cmd == "publish":
             return _cmd_publish(args)
     except RengloOpsError as exc:

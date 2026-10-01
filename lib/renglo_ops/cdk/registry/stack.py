@@ -8,13 +8,14 @@ config path (/publisher/<name>/config).
 from __future__ import annotations
 
 import json
-import re
 
 from aws_cdk import CfnCondition, CfnOutput, CfnParameter, Fn, Stack
 from aws_cdk import aws_codeartifact as codeartifact
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_ssm as ssm
 from constructs import Construct
+
+from renglo_ops.model.registry import sanitize_domain_name
 
 GITHUB_OIDC_PROVIDER_ARN_SUFFIX = "token.actions.githubusercontent.com"
 GITHUB_OIDC_URL = "https://token.actions.githubusercontent.com"
@@ -28,16 +29,6 @@ NPM_REPO_DEFAULT = "npm-store"
 def publisher_config_param(publisher_name: str) -> str:
     """SSM path for this publisher's registry metadata (unique per publisher_name)."""
     return f"/publisher/{sanitize_domain_name(publisher_name)}/config"
-
-
-def sanitize_domain_name(publisher_name: str) -> str:
-    raw = publisher_name.strip().lower().replace("_", "-")
-    cleaned = re.sub(r"[^a-z0-9-]", "", raw)
-    if not cleaned:
-        raise ValueError("publisher_name must contain letters or digits")
-    if cleaned[0].isdigit():
-        cleaned = f"pkg-{cleaned}"
-    return cleaned[:50]
 
 
 def _domain_arn(region: str, account: str, domain: str) -> str:

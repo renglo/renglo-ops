@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,17 @@ def registry_to_dict(registry: Registry) -> dict[str, Any]:
 
 def dump_registry(registry: Registry) -> str:
     return yaml.safe_dump(registry_to_dict(registry), sort_keys=False)
+
+
+def sanitize_domain_name(publisher_name: str) -> str:
+    """CodeArtifact domain for a publisher name. Same rule the publisher stack uses."""
+    raw = publisher_name.strip().lower().replace("_", "-")
+    cleaned = re.sub(r"[^a-z0-9-]", "", raw)
+    if not cleaned:
+        raise RengloOpsError("publisher name must contain letters or digits")
+    if cleaned[0].isdigit():
+        cleaned = f"pkg-{cleaned}"
+    return cleaned[:50]
 
 
 def load_registry(path: Path) -> Registry:

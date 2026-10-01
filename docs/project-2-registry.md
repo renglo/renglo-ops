@@ -45,6 +45,8 @@ The path is always the same: tag, package, registry.
 
 ---
 
+
+
 ## The registry, and who touches it
 
 A registry is like a warehouse that contains packages for distribution: it exists, it has a fixed address, and it does not change much once built. 
@@ -60,8 +62,6 @@ Three things happen around packages and registries, and they belong to different
 
 
 There is a fourth thing that is the goal of publishing a packate to a repository: Projects **reading from a registry** to get the package and use it. This is covered [at the end of this doc](#reading-from-a-registry).
-
-
 
 ### The operator is in charge of setting up the registry, not to publish code on it.
 
@@ -88,6 +88,8 @@ A developer can build an extension for weeks without needing any of this. Local 
 So treat Process 2 as part of that graduation, not as part of starting a new extension.
 
 ---
+
+
 
 ## Process 1 — the operator builds the Registry
 
@@ -163,6 +165,8 @@ region: us-east-1
 registry: /absolute/path/to/registry.yaml
 ```
 
+
+
 ### What the deploy created
 
 
@@ -187,6 +191,8 @@ After this deploy, the `**acme-registry` repository is mostly idle**. It holds `
 
 ---
 
+
+
 ## Process 2 — giving a repository a slot
 
 
@@ -206,8 +212,6 @@ That prints: `AWS_PUBLISH_ROLE_ARN` (stack output `OidcPublishRoleArn`), `PUBLIS
 
 Send them to the developer. That is the whole operator side.
 
-
-
 ### Developer: set the three variables
 
 In GitHub, on **the product repo** → Settings → Secrets and variables → Actions → Variables. Variables are per repository.
@@ -220,9 +224,11 @@ In GitHub, on **the product repo** → Settings → Secrets and variables → Ac
 | `AWS_REGION`           | From the operator — region of the publisher stack, e.g. `us-east-1` |
 
 
+
+
 ### Developer: add the workflow file to the repository
 
-The workflow file goes at the **root** of the repository. It goes in <repo-root>/.github/workflows.  Its name is always publish-extension.yml . 
+The workflow file goes at the **root** of the repository. It goes in /.github/workflows.  Its name is always publish-extension.yml . 
 
 ```text
 <repo-root>/
@@ -240,7 +246,7 @@ mkdir -p .github/workflows
 cp /path/to/renglo-ops/samples/publish-extension.yml .github/workflows/publish-extension.yml
 ```
 
-Canonical file: `[samples/publish-extension.yml](../samples/publish-extension.yml)` in this repository (`[renglo/renglo-ops` on GitHub](https://github.com/renglo/renglo-ops/blob/main/samples/publish-extension.yml)).
+Canonical file: `[samples/publish-extension.yml](../samples/publish-extension.yml)` in this repository (`[renglo/renglo-ops` on GitHub]([https://github.com/renglo/renglo-ops/blob/main/samples/publish-extension.yml](https://github.com/renglo/renglo-ops/blob/main/samples/publish-extension.yml))).
 
 It runs on pushed `v*` tags and on manual dispatch, and publishes whichever trees exist in the repository:
 
@@ -259,6 +265,8 @@ Tags publish only to CodeArtifact unless you opt in. Set the repository variable
 
 ---
 
+
+
 ## Process 3 — the developer releases a version
 
 From here on this is a developer loop with no operator in it. The version installed comes from the manifest (`pyproject.toml`, `package.json`), **not** from the tag string. Keep them aligned.
@@ -272,32 +280,26 @@ git checkout main
 git pull origin main
 git merge your-branch
 git push origin main
-git tag v1.0.1
+git tag v1.0.1 #This version should be aligned with pyproject.tom and package.json
 git push origin v1.0.1
 ```
 
-The tag starts the publish workflow. Confirm the run, then confirm the version is really in CodeArtifact before any environment pins it:
+The tag starts the publish workflow. Confirm the run in the Actions tab in github, then confirm the version is really in CodeArtifact before any environment pins it:
 
 ```bash
-ACCOUNT=$(aws sts get-caller-identity --query Account --output text --profile "$AWS_PROFILE")
+cd ops/acme-registry
+export AWS_PROFILE=<registry-profile>
 
-aws codeartifact list-package-versions \
-  --domain renglo \
-  --domain-owner "$ACCOUNT" \
-  --repository python-store \
-  --format pypi \
-  --package renglo-data \
-  --query 'versions[?version==`1.0.1`].version' \
-  --output text \
-  --profile "$AWS_PROFILE" \
-  --region "$AWS_REGION"
+renglo registry check renglo-data 1.0.1 --registry registry.yaml
 ```
 
-Empty output means that version is not on the shelf.
+Exit 0 and `result: published` means that version is on the shelf. `result: absent` means it is not. A name that starts with `@` is checked as npm (`renglo registry check @renglo/data 1.0.1`). Pass `--format python` or `--format npm` when the name does not make that obvious. A leading `v` is ignored, so `v1.0.1` checks `1.0.1`, the version in the manifest rather than the tag string. The command uses the same registry path and AWS profile as `renglo registry show`.
 
 `renglo publish --path .` builds with `python -m build` and uploads with `twine` from this machine, and `--dry-run` prints those commands. The tag on the product repo is the path CI takes; the local command is for a package you are pushing by hand.
 
 ---
+
+
 
 ## Reading from a registry
 
@@ -342,6 +344,8 @@ pip install "renglo-data==1.4.0"
 Moving to 1.5.0 is a bump of the pin, not a re-clone. That is the whole point of the registry.
 
 ---
+
+
 
 ## Next
 
