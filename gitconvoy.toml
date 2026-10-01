@@ -1,0 +1,6 @@
+# git-convoy membership marker (repo root).
+# role: product | ops | bom | incubating
+role = "ops"
+version = "python"
+publish = "python-wheel"
+pin = "registry"

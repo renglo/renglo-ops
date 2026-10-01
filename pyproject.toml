@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "renglo"
+version = "0.1.0"
+description = "Renglo environment command"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["pyyaml>=6.0", "renglo-ops"]
+
+[project.optional-dependencies]
+cdk = ["renglo-ops[cdk]"]
+dev = ["pytest>=7.0.0"]
+
+[project.scripts]
+renglo = "renglo.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["renglo*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["lib", "."]
