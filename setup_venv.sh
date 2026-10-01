@@ -18,10 +18,8 @@ fi
 # shellcheck disable=SC1091
 source "$VENV_NAME/bin/activate"
 
-echo "Installing dependencies from PyPI..."
-pip install --isolated --index-url "$PYPI_INDEX" --upgrade pip
 pip install --isolated --index-url "$PYPI_INDEX" -e "./lib[cdk,dev]"
-pip install --isolated --index-url "$PYPI_INDEX" -e ".[cdk,dev]"
+pip install --isolated --index-url "$PYPI_INDEX" -e "./cli[cdk,dev]"
 
 # The CDK CLI is a Node program, so it cannot come from pip. Keep it inside the
 # venv rather than installing it globally: no sudo, and no clash with another

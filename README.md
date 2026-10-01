@@ -47,7 +47,7 @@ Run those last two lines. `renglo status` should print your environment name, Gi
 
 ```text
 ops/
-├── renglo-ops/         the command and its library, with .venv inside
+├── renglo-ops/         two sibling packages: cli/ (`renglo`) and lib/ (`renglo-ops`)
 ├── acme-bom/           your environment: renglo.yaml, version pins, deploy workflows
 └── .renglo/local.yaml  this machine only: which BOM to use, which AWS profile
 ```

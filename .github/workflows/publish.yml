@@ -1,0 +1,71 @@
+name: Publish Python packages
+
+# This repository ships two wheels: lib/ (renglo-ops) and cli/ (renglo).
+# Product repos keep using publish-python.yml with a single PACKAGE_DIR.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      publish_public:
+        description: Also publish to public PyPI
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PUBLISH_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Publish to CodeArtifact
+        env:
+          PUBLISHER_NAME: ${{ vars.PUBLISHER_NAME }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PUBLISHER_NAME:-}" ]; then
+            echo "Set repository variable PUBLISHER_NAME (e.g. renglo)" >&2
+            exit 1
+          fi
+          slug=$(printf '%s' "$PUBLISHER_NAME" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+          CONFIG_PARAM="/publisher/${slug}/config"
+          CONFIG=$(aws ssm get-parameter --name "$CONFIG_PARAM" --query Parameter.Value --output text)
+          DOMAIN=$(printf '%s' "$CONFIG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["domain"])')
+          REPO=$(printf '%s' "$CONFIG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["python_repository"])')
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          python -m pip install --upgrade pip build twine
+          aws codeartifact login --tool twine \
+            --domain "$DOMAIN" \
+            --domain-owner "$ACCOUNT" \
+            --repository "$REPO"
+          for PACKAGE_DIR in lib cli; do
+            python -m build "$PACKAGE_DIR"
+            twine upload --repository codeartifact "$PACKAGE_DIR/dist"/*
+          done
+
+      - name: Publish to public PyPI
+        if: ${{ vars.PUBLISH_PUBLIC == 'true' || github.event.inputs.publish_public == true }}
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade twine
+          for PACKAGE_DIR in lib cli; do
+            twine upload "$PACKAGE_DIR/dist"/*
+          done

@@ -58,7 +58,7 @@ def workspace_root(start: Path) -> Path:
 
 
 def is_tool_checkout(path: Path) -> bool:
-    return (path / "lib" / "renglo_ops").is_dir() and (path / "renglo").is_dir()
+    return (path / "lib" / "renglo_ops").is_dir() and (path / "cli" / "renglo").is_dir()
 
 
 def refuse_tool_output(dest: Path) -> None:
