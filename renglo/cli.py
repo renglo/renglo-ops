@@ -13,7 +13,7 @@ from renglo.help import render
 from renglo_ops.model.errors import RengloOpsError
 from renglo_ops.model.import_legacy import import_legacy, write_import
 from renglo_ops.model.local import find_local, load_local, refuse_tool_output, workspace_root
-from renglo_ops.model.registry import dump_registry, load_registry
+from renglo_ops.model.registry import load_registry
 from renglo_ops.model.tenant import (
     Account,
     Tenant,
@@ -435,50 +435,63 @@ def _cmd_peer(args: argparse.Namespace) -> int:
     )
 
 
-def _cmd_registry_deploy(args: argparse.Namespace) -> int:
-    profile, _region = _profile_region()
-    registry = args.registry or os.environ.get("RENGLO_REGISTRY", "")
+def _resolve_registry_path(raw: str) -> Path:
+    registry = (raw or "").strip() or os.environ.get("RENGLO_REGISTRY", "").strip()
     if not registry:
         local_path = find_local(Path.cwd())
         if local_path:
-            registry = load_local(local_path).registry
+            registry = load_local(local_path).registry.strip()
     if not registry:
-        print("pass --registry PATH or set registry in .renglo/local.yaml", file=sys.stderr)
-        return 2
+        raise RengloOpsError(
+            "pass --registry PATH or set registry in .renglo/local.yaml"
+        )
+    return Path(registry).expanduser().resolve()
+
+
+def _require_named_aws_profile(profile: str, *, verb: str) -> str:
+    chosen = profile.strip()
+    if not chosen or chosen == "default":
+        raise RengloOpsError(
+            f"Refusing {verb} without a named AWS profile.\n"
+            "  export AWS_PROFILE=<registry-profile>\n"
+            f"  renglo registry {verb} --profile <registry-profile>"
+        )
+    return chosen
+
+
+def _cmd_registry_deploy(args: argparse.Namespace) -> int:
+    profile, _region = _profile_region()
+    registry_path = _resolve_registry_path(args.registry)
+    profile = _require_named_aws_profile(args.profile or profile, verb="deploy")
     return _run_cdk(
         "renglo_ops.cdk.registry",
-        profile=args.profile or profile,
-        extra_env={"RENGLO_REGISTRY": str(Path(registry).resolve())},
+        profile=profile,
+        extra_env={"RENGLO_REGISTRY": str(registry_path)},
         dry_run=args.dry_run,
     )
 
 
-_CALLER = """name: Publish
-on:
-  push:
-    tags: ["v*"]
-  workflow_dispatch:
-jobs:
-  publish:
-    uses: renglo/renglo-ops/.github/workflows/publish-extension.yml@v{version}
-    secrets: inherit
-"""
+def _cmd_registry_show(args: argparse.Namespace) -> int:
+    from renglo.operate import format_registry_show
 
-
-def _cmd_connect(args: argparse.Namespace) -> int:
-    registry_path = Path(args.registry)
-    registry = load_registry(registry_path)
-    repo = Path(args.repo).resolve()
-    name = args.name or repo.name
-    if name not in registry.publish_repos and "*" not in registry.publish_repos:
-        registry.publish_repos.append(name)
-        registry_path.write_text(dump_registry(registry), encoding="utf-8")
-        print(f"added {name} to {registry_path}")
-    workflow = repo / ".github" / "workflows" / "publish-extension.yml"
-    workflow.parent.mkdir(parents=True, exist_ok=True)
-    version = args.version or "0.1.0"
-    workflow.write_text(_CALLER.format(version=version), encoding="utf-8")
-    print(workflow)
+    registry = load_registry(_resolve_registry_path(args.registry))
+    profile, region = _profile_region()
+    profile = _require_named_aws_profile(args.profile or profile, verb="show")
+    region = (args.region or region or os.environ.get("AWS_REGION", "")).strip()
+    session = _aws_session(profile, region)
+    if not region:
+        region = session.region_name or "us-east-1"
+    account = session.client("sts").get_caller_identity()["Account"]
+    print(
+        format_registry_show(
+            registry,
+            session.client("cloudformation"),
+            account_id=str(account),
+            region=region,
+            profile=profile,
+        ),
+        end="",
+    )
     return 0
 
 
@@ -840,11 +853,12 @@ def main(argv: list[str] | None = None) -> int:
     registry_deploy = registry_sub.add_parser("deploy")
     registry_deploy.add_argument("--registry", default="")
     registry_deploy.add_argument("--dry-run", action="store_true")
-    connect = registry_sub.add_parser("connect")
-    connect.add_argument("repo")
-    connect.add_argument("--registry", required=True)
-    connect.add_argument("--name", default="")
-    connect.add_argument("--version", default="0.1.0")
+    registry_show = registry_sub.add_parser(
+        "show",
+        help="Publisher stack outputs (same AWS profile as deploy)",
+    )
+    registry_show.add_argument("--registry", default="")
+    registry_show.add_argument("--region", default="")
 
     publish = sub.add_parser("publish")
     publish.add_argument("--path", default=".")
@@ -912,8 +926,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_user_invite(args)
         if args.cmd == "registry" and args.registry_cmd == "deploy":
             return _cmd_registry_deploy(args)
-        if args.cmd == "registry" and args.registry_cmd == "connect":
-            return _cmd_connect(args)
+        if args.cmd == "registry" and args.registry_cmd == "show":
+            return _cmd_registry_show(args)
         if args.cmd == "publish":
             return _cmd_publish(args)
     except RengloOpsError as exc:

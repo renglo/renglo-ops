@@ -123,6 +123,7 @@ def test_help_paths_are_filters() -> None:
     assert "renglo registry deploy" not in greenfield
     assert "registry" in PATHS
     assert "renglo registry deploy" in render("registry")
+    assert "renglo registry show" in render("registry")
 
 
 def test_refuse_writing_into_the_tool() -> None:

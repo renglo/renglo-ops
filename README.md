@@ -153,7 +153,7 @@ Found by the same walk up, which is why running `renglo` from the BOM checkout o
 
 [Project 2](docs/project-2-registry.md) only, and the one file with no location of its own, because nothing ever searches for it. You give the path, and the first of these wins:
 
-1. `--registry PATH` on `renglo registry deploy`; on `renglo registry connect` the flag is required
+1. `--registry PATH` on `renglo registry deploy` or `renglo registry show`
 2. `RENGLO_REGISTRY` in the environment
 3. `registry:` in `.renglo/local.yaml`, which is how you stop typing the flag
 
@@ -232,10 +232,10 @@ Synths peer stacks from `renglo.yaml`, then runs `cdk deploy`. `--peer-id` limit
 
 Synths the registry stack from `registry.yaml`, then runs `cdk deploy`. Without `--registry` it falls back to `RENGLO_REGISTRY`, then `registry` in `.renglo/local.yaml`, and exits when none of the three is set. Refuses the `default` AWS profile. See [docs/project-2-registry.md](docs/project-2-registry.md).
 
-### `renglo registry connect REPO --registry PATH [--name NAME] [--version X.Y.Z]`
+### `renglo registry show [--registry PATH] [--region REGION]`
 
-Adds the repo's short name to `publish_repos` and writes a caller workflow into that repo. You still set the GitHub Actions variables yourself, then redeploy the registry if the name was new.
+Reads the deployed publisher stack in AWS and prints outputs plus the GitHub Actions variables for product repos. Uses the same registry path resolution as deploy. Pass `--profile` or `AWS_PROFILE` for the **registry** account (not the hub). Refuses the `default` profile.
 
 ### `renglo publish [--path DIR] [--dry-run]`
 
-Builds the package in `DIR` with `python -m build` and uploads it with `twine`. The usual release path is a git tag on the product repo, described in [docs/project-2-registry.md](docs/project-2-registry.md#release-a-version). Use this command when you are publishing by hand.
+Builds the package in `DIR` with `python -m build` and uploads it with `twine`. The usual release path is a git tag on the product repo, described in [docs/project-2-registry.md](docs/project-2-registry.md#process-3--the-developer-releases-a-version). Use this command when you are publishing by hand.

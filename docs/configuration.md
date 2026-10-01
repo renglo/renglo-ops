@@ -215,15 +215,17 @@ Two commands need it, and the path comes from the first of these that is set:
 
 | Source | Notes |
 | --- | --- |
-| `--registry PATH` | Optional on `renglo registry deploy`, required on `renglo registry connect` |
+| `--registry PATH` | Optional on `renglo registry deploy` and `renglo registry show` |
 | `RENGLO_REGISTRY` | Absolute path in the environment. The CDK app reads this variable, so it is also what `--registry` ends up setting |
-| `registry:` in `.renglo/local.yaml` | `deploy` only. Make it absolute: a relative value resolves against the current directory, not the workspace root |
+| `registry:` in `.renglo/local.yaml` | Make it absolute: a relative value resolves against the current directory, not the workspace root |
 
-`renglo registry deploy` exits with `pass --registry PATH or set registry in .renglo/local.yaml` when all three are empty.
+Both commands exit with `pass --registry PATH or set registry in .renglo/local.yaml` when all three are empty.
 
-The file is also written to, not only read: `renglo registry connect REPO --registry PATH` appends the repo's short name to `publish_repos` in place. Commit that change, then redeploy the registry so the publish role trusts the new repo.
+You edit `registry.yaml` by hand. Adding a repo to `publish_repos` is a commit in the registry repository followed by `renglo registry deploy`, so the publish role trusts the new repo.
 
 ### Template
+
+Most setups host the registry and run the hub in the **same** AWS account. Use an empty list for `reader_accounts` — write `reader_accounts: []` on one line (that is valid YAML; do not omit the key unless you are fine with the loader defaulting it to `[]` anyway):
 
 ```yaml
 name: acme
@@ -231,20 +233,26 @@ github_org: acmeco
 publish_repos:
   - data
   - schd
-reader_accounts:
-  - '123456789012'
+reader_accounts: []
 python: python-store
 npm: npm-store
 ```
 
-`name` and `github_org` are required; the loader rejects the file without them. `publish_repos` and `reader_accounts` default to empty lists, `python` to `python-store` and `npm` to `npm-store`.
+Only when a **different** AWS account must `pip` / `npm` install from this domain, add that account's 12-digit id:
+
+```yaml
+reader_accounts:
+  - '123456789012'
+```
+
+`name` and `github_org` are required; the loader rejects the file without them. `publish_repos` and `reader_accounts` default to empty lists when omitted, `python` to `python-store` and `npm` to `npm-store`.
 
 | Field | Meaning |
 | --- | --- |
 | `name` | Short id. The stack is `<name>-publisher`; the CodeArtifact domain is a sanitized form of it |
 | `github_org` | GitHub org whose repos may publish |
 | `publish_repos` | Repo short names allowed to assume the publish role. `["*"]` trusts any repo in the org |
-| `reader_accounts` | AWS account ids allowed to install. Empty means same-account readers only |
+| `reader_accounts` | AWS account ids allowed to install from another account. **`[]` (same account only)** is the usual value; add ids when the hub or peers run elsewhere |
 | `python` / `npm` | Repository names. Leave as `python-store` and `npm-store` unless you have a reason to change them |
 
 What each value creates in AWS is in [project-2-registry.md](project-2-registry.md#registryyaml).

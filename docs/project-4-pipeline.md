@@ -100,7 +100,7 @@ jobs:
     secrets: inherit
 ```
 
-The tag matches the package version. Connecting a repo and its Actions variables is in [project-2-registry.md](project-2-registry.md#connect-a-product-repository).
+The tag matches the package version. Connecting a repo and its Actions variables is in [project-2-registry.md](project-2-registry.md#process-2--giving-a-repository-a-slot).
 
 ## 4. Trigger it
 

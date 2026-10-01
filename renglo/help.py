@@ -13,7 +13,7 @@ PATHS: dict[str, list[str]] = {
     ],
     "registry": [
         "renglo registry deploy",
-        "renglo registry connect REPO",
+        "renglo registry show",
         "renglo publish",
         "renglo config import",
     ],
@@ -59,7 +59,6 @@ BLURBS = {
     "deploy": "Synth (and, without --dry-run, cdk deploy) hub, peer, or registry stacks.",
     "import": "Write renglo.yaml and registry.yaml from the old config files. One time.",
     "check": "Validate renglo.yaml and compare github.repo with the BOM checkout.",
-    "connect": "Add a product repo to registry.yaml and write its publish workflow.",
     "publish": "Build and upload the package in the current directory.",
 }
 

@@ -15,6 +15,7 @@ from typing import Any
 from renglo_ops.cdk.hub.stack_names import stack_a_id, stack_b_id
 from renglo_ops.cdk.shared.config_builder import ssm_platform_vars_path
 from renglo_ops.model.errors import RengloOpsError
+from renglo_ops.model.registry import Registry
 from renglo_ops.model.tenant import Tenant
 from renglo_ops.release.peers import peer_stack_name
 
@@ -150,6 +151,72 @@ def format_peer_show(tenant: Tenant, peer_id: str) -> str:
     ]
     if peer.get("aws_region"):
         lines.append(f"region: {peer['aws_region']}")
+    return "\n".join(lines) + "\n"
+
+
+def publisher_stack_name(registry_name: str) -> str:
+    return f"{registry_name.strip()}-publisher"
+
+
+def format_registry_show(
+    registry: Registry,
+    cfn: Any,
+    *,
+    account_id: str,
+    region: str,
+    profile: str,
+) -> str:
+    """CloudFormation outputs for the publisher stack (same profile as deploy)."""
+    stack = publisher_stack_name(registry.name)
+    lines = [
+        f"registry file: {registry.path}",
+        f"publisher name: {registry.name}",
+        f"cloudformation stack: {stack}",
+        f"aws profile: {profile}",
+        f"aws region: {region}",
+        f"caller account: {account_id}",
+        "",
+    ]
+    try:
+        response = cfn.describe_stacks(StackName=stack)
+    except Exception as exc:
+        message = str(exc)
+        code = ""
+        err_response = getattr(exc, "response", None)
+        if isinstance(err_response, dict):
+            code = str((err_response.get("Error") or {}).get("Code") or "")
+        if code in {"ValidationError", "StackNotFoundException"} or "does not exist" in message:
+            lines.append("stack: ABSENT in this account and region")
+            lines.append("")
+            lines.append(
+                "If you already deployed, use the same AWS profile as "
+                "renglo registry deploy (not the hub profile)."
+            )
+            return "\n".join(lines) + "\n"
+        raise
+    stacks = response.get("Stacks") or []
+    if not stacks:
+        lines.append("stack: ABSENT in this account and region")
+        return "\n".join(lines) + "\n"
+    row = stacks[0]
+    lines.append(f"stack status: {row.get('StackStatus') or 'UNKNOWN'}")
+    outputs = {
+        str(item.get("OutputKey") or ""): str(item.get("OutputValue") or "")
+        for item in (row.get("Outputs") or [])
+        if item.get("OutputKey")
+    }
+    if outputs:
+        lines.append("")
+        lines.append("outputs:")
+        for key in sorted(outputs):
+            lines.append(f"  {key}: {outputs[key]}")
+    role = outputs.get("OidcPublishRoleArn", "")
+    publisher = outputs.get("PublisherName", registry.name)
+    lines.append("")
+    lines.append("GitHub Actions variables (per product repo):")
+    lines.append(f"  AWS_PUBLISH_ROLE_ARN: {role or '(missing output)'}")
+    lines.append(f"  PUBLISHER_NAME: {publisher}")
+    lines.append(f"  AWS_REGION: {region}")
     return "\n".join(lines) + "\n"
 
 

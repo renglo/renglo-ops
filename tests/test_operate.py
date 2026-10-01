@@ -8,10 +8,12 @@ from renglo.operate import (
     extension_rows,
     format_extension_tree,
     format_peer_list,
+    format_registry_show,
     parse_stacks,
     refuse_destroy_a_while_b_exists,
 )
 from renglo_ops.model.errors import RengloOpsError
+from renglo_ops.model.registry import Registry
 from renglo_ops.model.tenant import load_tenant
 
 
@@ -72,14 +74,58 @@ def test_extension_and_peer_views(tmp_path: Path) -> None:
 
 
 class _Cfn:
-    def __init__(self, statuses: dict[str, str]) -> None:
+    def __init__(
+        self,
+        statuses: dict[str, str],
+        *,
+        outputs: dict[str, list[dict[str, str]]] | None = None,
+    ) -> None:
         self.statuses = statuses
+        self.outputs = outputs or {}
 
     def describe_stacks(self, StackName: str):
         status = self.statuses.get(StackName)
         if status is None:
             raise RuntimeError("Stack with id does not exist")
-        return {"Stacks": [{"StackStatus": status}]}
+        stack: dict = {"StackStatus": status}
+        if StackName in self.outputs:
+            stack["Outputs"] = self.outputs[StackName]
+        return {"Stacks": [stack]}
+
+
+def test_format_registry_show_absent() -> None:
+    registry = Registry(name="apollo", github_org="acmeco", path=Path("/tmp/registry.yaml"))
+    text = format_registry_show(
+        registry,
+        _Cfn({}),
+        account_id="111122223333",
+        region="us-east-1",
+        profile="volatour",
+    )
+    assert "ABSENT" in text
+    assert "same AWS profile" in text
+
+
+def test_format_registry_show_outputs() -> None:
+    registry = Registry(name="apollo", github_org="acmeco", path=Path("/tmp/registry.yaml"))
+    cfn = _Cfn(
+        {"apollo-publisher": "CREATE_COMPLETE"},
+        outputs={
+            "apollo-publisher": [
+                {"OutputKey": "OidcPublishRoleArn", "OutputValue": "arn:aws:iam::1:role/x"},
+                {"OutputKey": "PublisherName", "OutputValue": "apollo"},
+            ]
+        },
+    )
+    text = format_registry_show(
+        registry,
+        cfn,
+        account_id="858045071584",
+        region="us-east-1",
+        profile="volatour",
+    )
+    assert "AWS_PUBLISH_ROLE_ARN: arn:aws:iam::1:role/x" in text
+    assert "PUBLISHER_NAME: apollo" in text
 
 
 def test_refuse_destroy_a_while_b_exists() -> None:
