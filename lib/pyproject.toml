@@ -18,4 +18,4 @@ where = ["."]
 include = ["renglo_ops*"]
 
 [tool.setuptools.package-data]
-renglo_ops = ["image_data/*"]
+renglo_ops = ["image_data/*", "release/*.sh"]
