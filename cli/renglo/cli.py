@@ -64,6 +64,16 @@ def _cmd_status(args: argparse.Namespace | None = None) -> int:
     print(f"profile: {profile or '(unset)'}")
     if profile and region:
         print(f"region: {region}")
+    from renglo.operate import format_status_urls
+
+    ssm_client = None
+    if profile:
+        session = _aws_session(
+            (args.profile if args is not None else None) or profile,
+            region or tenant.primary_account().region,
+        )
+        ssm_client = session.client("ssm")
+    print(format_status_urls(ssm_client, tenant.name), end="")
     if args is not None and args.live:
         from renglo.operate import format_live_status
 
@@ -294,6 +304,15 @@ def _venv_activate() -> str:
         return str(activate.relative_to(Path.cwd()))
     except ValueError:
         return str(activate)
+
+
+def _cmd_catalog_sync(args: argparse.Namespace) -> int:
+    from renglo_ops.model.product_catalog import sync_tenant_packages
+
+    tenant = _tenant_from_env()
+    result = sync_tenant_packages(tenant, start=Path.cwd(), dry_run=args.dry_run)
+    print(result.format(), end="")
+    return 0
 
 
 def _cmd_check() -> int:
@@ -777,6 +796,17 @@ def main(argv: list[str] | None = None) -> int:
     _init_flags(config_sub.add_parser("init"))
     config_sub.add_parser("check")
 
+    catalog = sub.add_parser(
+        "catalog",
+        help="Sync product.yaml from the white-label pack into renglo.yaml",
+    )
+    catalog_sub = catalog.add_subparsers(dest="catalog_cmd")
+    catalog_sync = catalog_sub.add_parser(
+        "sync",
+        help="Merge product.yaml packages into renglo.yaml (optional --dry-run)",
+    )
+    catalog_sync.add_argument("--dry-run", action="store_true")
+
     stack = sub.add_parser("stack")
     stack_sub = stack.add_subparsers(dest="stack_cmd")
     deploy = stack_sub.add_parser("deploy")
@@ -902,6 +932,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_config_init(args)
         if args.cmd == "config" and args.config_cmd == "check":
             return _cmd_check()
+        if args.cmd == "catalog" and args.catalog_cmd == "sync":
+            return _cmd_catalog_sync(args)
         if args.cmd == "stack" and args.stack_cmd == "deploy":
             return _cmd_stack(args)
         if args.cmd == "stack" and args.stack_cmd == "status":

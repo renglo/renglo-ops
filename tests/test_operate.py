@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import yaml
@@ -10,6 +11,7 @@ from renglo.operate import (
     format_peer_list,
     format_registry_check,
     format_registry_show,
+    format_status_urls,
     package_coordinates,
     parse_stacks,
     refuse_destroy_a_while_b_exists,
@@ -306,5 +308,49 @@ def test_cli_reads_placement_without_aws(tmp_path: Path, monkeypatch, capsys) ->
 
 def test_help_operate() -> None:
     text = render("operate")
+    assert "renglo catalog sync" in text
     assert "renglo email sender-status" in text
     assert "renglo help operate" in render("")
+    assert "catalog sync" in render("")
+
+
+class _Ssm:
+    def __init__(self, params: dict[str, str]) -> None:
+        self.params = params
+
+    def get_parameter(self, Name: str):
+        raw = self.params.get(Name)
+        if raw is None:
+            raise _AwsError("ParameterNotFound", Name)
+        return {"Parameter": {"Value": raw}}
+
+
+def test_format_status_urls() -> None:
+    staging = json.dumps(
+        {"VARS": {"BASE_URL": "https://api/staging", "FE_BASE_URL": "https://console/staging/"}}
+    )
+    production = json.dumps(
+        {"VARS": {"BASE_URL": "https://api/production", "FE_BASE_URL": "https://console/production/"}}
+    )
+    ssm = _Ssm(
+        {
+            "/acme1/bootstrap/platform-vars/staging": staging,
+            "/acme1/bootstrap/platform-vars/production": production,
+        }
+    )
+    text = format_status_urls(ssm, "acme1")
+    assert "urls staging:" in text
+    assert "api: https://api/staging" in text
+    assert "console: https://console/staging/" in text
+    assert "urls production:" in text
+    assert "api: https://api/production" in text
+    assert "console: https://console/production/" in text
+    assert "urls development:" in text
+    assert "api: http://127.0.0.1:5001" in text
+    assert "console: http://127.0.0.1:5174/" in text
+
+    no_profile = format_status_urls(None, "acme1")
+    assert "urls staging:" in no_profile
+    assert "urls production:" in no_profile
+    assert "profile required" in no_profile
+    assert "urls development:" in no_profile

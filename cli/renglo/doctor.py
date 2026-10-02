@@ -469,6 +469,17 @@ def run_doctor(start: Path | None = None) -> list[Check]:
                         f"hub={len(tenant.placement_hub)} peer(s)={len(tenant.placement_peers)}",
                     )
                 )
+        from renglo_ops.model.product_catalog import catalog_doctor
+
+        catalog_status, catalog_detail = catalog_doctor(here, tenant)
+        checks.append(
+            Check(
+                "Projects",
+                "Product catalog",
+                Status(catalog_status),
+                catalog_detail,
+            )
+        )
 
         p4_missing: list[str] = []
         if not tenant.github_owner_id:

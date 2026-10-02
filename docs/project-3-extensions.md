@@ -43,6 +43,16 @@ packages:
     npm: '@acme/billing'
 ```
 
+Developers keep that list in the white-label pack as `product.yaml` (`dev/<tenant>-wl/product.yaml`). It names handles and package coordinates only. It does not choose hub or peer, and it does not pin versions.
+
+```bash
+renglo catalog sync
+```
+
+The command copies handles from that file into `packages`. Handles already present stay; a coordinate change in `product.yaml` updates that handle. Packages that exist only in `renglo.yaml` (the platform libraries, the console, the white-label pack itself) are left alone. New handles are not placed. Add each one to `placement.hub` or a peer before you deploy.
+
+If the white-label checkout or `product.yaml` is missing, the command prints `catalog: (not found)` and leaves `renglo.yaml` unchanged. `renglo doctor` reports the same gap as optional.
+
 Where those packages come from is `registries` — [project-2-registry.md](project-2-registry.md). A package in a foreign CodeArtifact domain needs a `registries` row carrying that domain's `account`, and the domain owner needs this environment's account in `reader_accounts`. Packages on public PyPI or npmjs need no row; the `python-store` and `npm-store` repositories have public upstreams.
 
 Check the pairing before deploying: every package name under `packages` should resolve in one of the registries the environment can read.

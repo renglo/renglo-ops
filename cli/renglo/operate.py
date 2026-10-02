@@ -21,6 +21,7 @@ from renglo_ops.model.tenant import Tenant
 from renglo_ops.release.peers import peer_stack_name
 
 _URL_KEYS = ("BASE_URL", "FE_BASE_URL", "AMPLIFY_CONSOLE_URL", "FROM_EMAIL")
+_LOCAL_API = "http://127.0.0.1:5001"
 _LOCAL_CONSOLE = "http://127.0.0.1:5174/"
 
 
@@ -410,8 +411,12 @@ def format_live_status(tenant: Tenant, cfn: Any, ssm: Any) -> str:
         lines.append(f"peers: {peers}")
     else:
         lines.append("peers: (none)")
-    summary = _ssm_summary(ssm, tenant.name, "production") or _ssm_summary(ssm, tenant.name, "staging")
-    lines.append(f"ssm: {summary}")
+    prod = _ssm_summary(ssm, tenant.name, "production")
+    staging = _ssm_summary(ssm, tenant.name, "staging")
+    if prod:
+        lines.append(f"ssm: {prod}")
+    if staging and staging != prod:
+        lines.append(f"ssm: {staging}")
     return "\n".join(lines) + "\n"
 
 
@@ -444,6 +449,36 @@ def _ssm_summary(ssm: Any, env_name: str, stage: str) -> str:
     sender = vars_block.get("FROM_EMAIL") or "(no FROM_EMAIL)"
     base = vars_block.get("BASE_URL") or "(no BASE_URL)"
     return f"{stage} FROM_EMAIL={sender} BASE_URL={base}"
+
+
+def _cloud_console_url(vars_block: dict[str, str]) -> str:
+    return vars_block.get("FE_BASE_URL") or vars_block.get("AMPLIFY_CONSOLE_URL") or "(no FE_BASE_URL)"
+
+
+def _format_url_stage(label: str, api: str, console: str) -> list[str]:
+    return [f"urls {label}:", f"  api: {api}", f"  console: {console}"]
+
+
+def _cloud_urls(ssm: Any | None, env_name: str, stage: str) -> tuple[str, str]:
+    if ssm is None:
+        missing = "(profile required for cloud URLs)"
+        return missing, missing
+    vars_block = _load_vars(ssm, env_name, stage)
+    if not vars_block:
+        missing = "(no platform-vars)"
+        return missing, missing
+    api = vars_block.get("BASE_URL") or "(no BASE_URL)"
+    return api, _cloud_console_url(vars_block)
+
+
+def format_status_urls(ssm: Any | None, env_name: str) -> str:
+    """Cloud URLs from SSM (staging, production) and local development for renglo status."""
+    lines: list[str] = []
+    for stage in ("staging", "production"):
+        api, console = _cloud_urls(ssm, env_name, stage)
+        lines.extend(_format_url_stage(stage, api, console))
+    lines.extend(_format_url_stage("development", _LOCAL_API, _LOCAL_CONSOLE))
+    return "\n".join(lines) + "\n"
 
 
 def format_state_live(ssm: Any, env_name: str) -> str:
