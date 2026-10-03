@@ -114,6 +114,10 @@ _aws() {
 _pin_published_handler() {
   local fn="$1"
   local handler size
+  if ! _aws lambda get-function-configuration --function-name "$fn" --query FunctionName --output text >/dev/null 2>&1; then
+    echo "  skip handler pin for ${fn} (no function)"
+    return 0
+  fi
   handler="$(_aws lambda get-function-configuration --function-name "$fn" --query Handler --output text)"
   size="$(_aws lambda get-function-configuration --function-name "$fn" --query CodeSize --output text)"
   if [[ "$size" -le 10000 ]]; then
@@ -153,7 +157,8 @@ case "$ACTION" in
     if [[ -n "$STACK" ]]; then
       echo "+ cdk deploy ${STACK} --output ${OUTPUT_DIR} ..."
       cdk deploy "$STACK" "${CDK_ARGS[@]}" --require-approval never
-      _pin_published_handler "$STACK"
+      _pin_published_handler "${STACK}-staging"
+      _pin_published_handler "${STACK}-production"
     else
       echo "+ cdk deploy --all --output ${OUTPUT_DIR} ..."
       cdk deploy --all "${CDK_ARGS[@]}" --require-approval never

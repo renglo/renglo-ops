@@ -192,6 +192,7 @@ def build_launcher_vars(
         "AWS_REGION": aws_region,
         "AWS_DEFAULT_REGION": aws_region,
         "AWS_ECR_REPOSITORY": backend_ecr_repo_name,
+        "STAGE": stage,
         "WEBSOCKET_CONNECTIONS": ws_connections,
         "WEBSOCKET_URL": ws_url,
         "VITE_WEBSOCKET_URL": ws_url,

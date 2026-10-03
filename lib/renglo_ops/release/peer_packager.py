@@ -20,7 +20,7 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 from lambda_env import merge_peer_lambda_env  # noqa: E402
-from peers import handlers_unit_name  # noqa: E402
+from peers import handlers_lambda_function_name, handlers_unit_name  # noqa: E402
 from prepare_handlers_wheelhouse import pin_specs  # noqa: E402
 
 # CDK seed ZipFile is always named index.py (AWS convention). Real handler zips
@@ -233,7 +233,15 @@ def cmd_build(args: argparse.Namespace) -> int:
 
 
 def cmd_publish(args: argparse.Namespace) -> int:
-    unit = handlers_unit_name(args.env_name, args.peer_id)
+    stage = str(getattr(args, "stage", "") or "").strip().lower()
+    try:
+        unit = handlers_lambda_function_name(args.env_name, args.peer_id, stage)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    if unit == handlers_unit_name(args.env_name, args.peer_id):
+        print("ERROR: --stage staging|production is required", file=sys.stderr)
+        return 1
     zip_path = Path(args.zip).resolve()
     if not zip_path.is_file():
         print(f"zip not found: {zip_path}", file=sys.stderr)
@@ -364,6 +372,7 @@ def main() -> int:
     add_identity(p)
     p.add_argument("--zip", required=True)
     p.add_argument("--region", default="")
+    p.add_argument("--stage", required=True, choices=("staging", "production"))
     p.add_argument(
         "--env-json",
         default="",

@@ -30,6 +30,26 @@ def peer_unit_name(env_name: str, peer_id: str) -> str:
     return f"{env}-peer-{peer}"
 
 
+PEER_STAGES = ("staging", "production")
+
+
+def handlers_lambda_function_name(
+    env_name: str, peer_id: str | None = None, stage: str | None = None
+) -> str:
+    """Peer Lambda for one stage: ``{env}-peer-{peerId}-{stage}``.
+
+    Staging and production are separate functions. A staging publish cannot
+    replace the zip production is running.
+    """
+    unit = handlers_unit_name(env_name, peer_id)
+    chosen = (stage or "").strip().lower()
+    if not chosen:
+        return unit
+    if chosen not in PEER_STAGES:
+        raise ValueError(f"peer stage must be staging or production, got {stage!r}")
+    return f"{unit}-{chosen}"
+
+
 def handlers_unit_name(env_name: str, peer_id: str | None = None) -> str:
     """CloudFormation / Lambda / ECS resource stem.
 

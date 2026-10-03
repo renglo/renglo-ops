@@ -87,8 +87,17 @@ def handlers_unit_name(env_name: str, peer_id: str | None = None) -> str:
     return f"{env}-handlers"
 
 
-def handlers_lambda_function_name(env_name: str, peer_id: str | None = None) -> str:
-    return handlers_unit_name(env_name, peer_id)
+def handlers_lambda_function_name(
+    env_name: str, peer_id: str | None = None, stage: str | None = None
+) -> str:
+    """``{env}-peer-{peerId}-{stage}``. Staging and production are different functions."""
+    unit = handlers_unit_name(env_name, peer_id)
+    chosen = (stage or "").strip().lower()
+    if not chosen:
+        return unit
+    if chosen not in ("staging", "production"):
+        raise ValueError(f"peer stage must be staging or production, got {stage!r}")
+    return f"{unit}-{chosen}"
 
 
 _SKIP_PEER_EXTENSION_ENV = frozenset(
@@ -231,7 +240,8 @@ def _ecs_task_role_policy_document(
             iam.PolicyStatement(
                 actions=["lambda:InvokeFunction"],
                 resources=[
-                    f"arn:aws:lambda:{region}:{account}:function:{handlers_lambda_function_name(env_name, peer_id)}"
+                    f"arn:aws:lambda:{region}:{account}:function:{handlers_lambda_function_name(env_name, peer_id, 'staging')}",
+                    f"arn:aws:lambda:{region}:{account}:function:{handlers_lambda_function_name(env_name, peer_id, 'production')}",
                 ],
             ),
         ]
@@ -279,6 +289,7 @@ def _handlers_oidc_policy(
     region: str,
     account: str,
     *,
+    stage: str,
     ecs_results_bucket: str,
     peer_id: str | None = None,
     package_registry: dict | None = None,
@@ -289,6 +300,7 @@ def _handlers_oidc_policy(
     CodeArtifact read matches launcher GitHubActionsDeployRole (peer CI pip login).
     """
     unit = handlers_unit_name(env_name, peer_id)
+    stage_function = handlers_lambda_function_name(env_name, peer_id, stage)
     handlers_ecr_arn = f"arn:aws:ecr:{region}:{account}:repository/{unit}-ecs"
     handlers_role_arn = f"arn:aws:iam::{account}:role/{unit}-role"
     return iam.PolicyDocument(
@@ -376,7 +388,7 @@ def _handlers_oidc_policy(
                     "lambda:UpdateFunctionCode",
                     "lambda:UpdateFunctionConfiguration",
                 ],
-                resources=[f"arn:aws:lambda:{region}:{account}:function:{unit}"],
+                resources=[f"arn:aws:lambda:{region}:{account}:function:{stage_function}"],
             ),
             iam.PolicyStatement(
                 actions=["iam:GetRole", "iam:PassRole"],
@@ -461,6 +473,7 @@ class ComputeStack(Construct):
         self._extension_handles = [str(h).strip() for h in (extension_handles or []) if str(h).strip()]
         self._extensions_root = Path(extensions_root) if extensions_root else None
         self._extension_runtime_env: dict[str, Any] = {}
+        self._enable_staging = enable_staging
         unit = handlers_unit_name(env_name, self._peer_id)
         self._unit = unit
         peer_id = self._peer_id
@@ -622,41 +635,12 @@ class ComputeStack(Construct):
         self._extension_runtime_env = self._provision_extension_infra(
             env_name, aws_account, aws_region
         )
-
-        handlers_lambda_log_group = logs.LogGroup(
-            self,
-            "HandlersLambdaLogGroup",
-            log_group_name=f"/aws/lambda/{handlers_lambda_function_name(env_name, peer_id)}",
-            removal_policy=RemovalPolicy.DESTROY,
+        stage_fns = self._provision_stage_lambdas(
+            env_name,
+            handlers_lambda_role,
+            getattr(self, "_extension_runtime_env", None),
         )
-
-        # Seed ZipFile is always unpacked as index.py; peer_packager publish
-        # overwrites Handler to lambda_router.lambda_handler with the real zip.
-        # CDK updates reset Handler even when they leave the zip — deploy_peer_cdk.sh
-        # pins it back after deploy.
-        handlers_fn = aws_lambda_.CfnFunction(
-            self,
-            "HandlersLambda",
-            function_name=handlers_lambda_function_name(env_name, peer_id),
-            role=handlers_lambda_role.role_arn,
-            runtime="python3.12",
-            handler="index.handler",
-            code=aws_lambda_.CfnFunction.CodeProperty(
-                zip_file=(
-                    "def handler(event, context):\n"
-                    "    return {'statusCode': 200, 'body': 'seed'}\n"
-                ),
-            ),
-            timeout=900,
-            memory_size=512,
-            description=DESCRIPTION,
-            environment=handlers_lambda_environment(
-                env_name, getattr(self, "_extension_runtime_env", None)
-            ),
-        )
-        handlers_fn.add_dependency(handlers_lambda_role.node.default_child)  # type: ignore[arg-type]
-        handlers_fn.cfn_options.deletion_policy = CfnDeletionPolicy.DELETE
-        handlers_fn.cfn_options.update_replace_policy = CfnDeletionPolicy.DELETE
+        handlers_fn = stage_fns["production"]
 
         # --- CloudWatch log group (ECS tasks) ---
         task_family = f"{unit}-ecs"
@@ -729,8 +713,6 @@ class ComputeStack(Construct):
         CfnOutput(self, "HandlersExecutionRoleArn", value=execution_role.role_arn)
         CfnOutput(self, "HandlersTaskRoleArn", value=task_role.role_arn)
         CfnOutput(self, "HandlersLambdaRoleArn", value=handlers_lambda_role.role_arn)
-        CfnOutput(self, "HandlersLambdaLogGroupName", value=handlers_lambda_log_group.log_group_name)
-        CfnOutput(self, "HandlersLambdaFunctionName", value=handlers_fn.function_name)  # type: ignore[arg-type]
         CfnOutput(self, "HandlersTaskFamily", value=task_family)
 
         self.stable_outputs = {
@@ -741,7 +723,6 @@ class ComputeStack(Construct):
             "HandlersExecutionRoleArn": execution_role.role_arn,
             "HandlersTaskRoleArn": task_role.role_arn,
             "HandlersLambdaRoleArn": handlers_lambda_role.role_arn,
-            "HandlersLambdaLogGroupName": handlers_lambda_log_group.log_group_name,
             "HandlersLambdaFunctionName": handlers_fn.function_name,  # type: ignore[arg-type]
             "HandlersTaskFamily": task_family,
             **ec2_network_outputs,
@@ -787,16 +768,16 @@ class ComputeStack(Construct):
                 f"arn:aws:iam::{aws_account}:oidc-provider/{GITHUB_OIDC_PROVIDER_ARN_SUFFIX}"
             ),
         )
-        policy_doc = _handlers_oidc_policy(
-            env_name,
-            aws_region,
-            aws_account,
-            ecs_results_bucket=ecs_results_bucket,
-            peer_id=peer_id,
-            package_registry=self._package_registry,
-        )
-
         def _handlers_oidc_role(stage: str) -> iam.Role:
+            policy_doc = _handlers_oidc_policy(
+                env_name,
+                aws_region,
+                aws_account,
+                stage=stage,
+                ecs_results_bucket=ecs_results_bucket,
+                peer_id=peer_id,
+                package_registry=self._package_registry,
+            )
             return iam.Role(
                 self,
                 f"HandlersOidcDeployRole{stage.capitalize()}",
@@ -895,6 +876,68 @@ class ComputeStack(Construct):
             )
         return merged
 
+    def _peer_lambda_stages(self) -> list[str]:
+        stages = ["production"]
+        if getattr(self, "_enable_staging", True):
+            stages.append("staging")
+        return stages
+
+    def _provision_stage_lambdas(
+        self,
+        env_name: str,
+        role: iam.Role,
+        extra_env: dict[str, Any] | None,
+    ) -> dict[str, aws_lambda_.CfnFunction]:
+        """One handlers Lambda per stage. They do not share code or environment."""
+        created: dict[str, aws_lambda_.CfnFunction] = {}
+        for stage in self._peer_lambda_stages():
+            cap = stage.capitalize()
+            fn_name = handlers_lambda_function_name(env_name, self._peer_id, stage)
+            log_group = logs.LogGroup(
+                self,
+                f"HandlersLambdaLogGroup{cap}",
+                log_group_name=f"/aws/lambda/{fn_name}",
+                removal_policy=RemovalPolicy.DESTROY,
+            )
+            # Seed ZipFile is always unpacked as index.py; peer_packager publish
+            # overwrites Handler to lambda_router.lambda_handler with the real zip.
+            # CDK updates reset Handler even when they leave the zip — deploy_peer_cdk.sh
+            # pins it back after deploy.
+            fn = aws_lambda_.CfnFunction(
+                self,
+                f"HandlersLambda{cap}",
+                function_name=fn_name,
+                role=role.role_arn,
+                runtime="python3.12",
+                handler="index.handler",
+                code=aws_lambda_.CfnFunction.CodeProperty(
+                    zip_file=(
+                        "def handler(event, context):\n"
+                        "    return {'statusCode': 200, 'body': 'seed'}\n"
+                    ),
+                ),
+                timeout=900,
+                memory_size=512,
+                description=DESCRIPTION,
+                environment=handlers_lambda_environment(env_name, extra_env),
+            )
+            fn.add_dependency(role.node.default_child)  # type: ignore[arg-type]
+            fn.add_dependency(log_group)
+            fn.cfn_options.deletion_policy = CfnDeletionPolicy.DELETE
+            fn.cfn_options.update_replace_policy = CfnDeletionPolicy.DELETE
+            CfnOutput(self, f"HandlersLambdaFunctionName{cap}", value=fn.function_name)
+            CfnOutput(self, f"HandlersLambdaLogGroupName{cap}", value=log_group.log_group_name)
+            created[stage] = fn
+        production = created["production"]
+        # Readers that still look up one name get production, never staging.
+        CfnOutput(self, "HandlersLambdaFunctionName", value=production.function_name)
+        CfnOutput(
+            self,
+            "HandlersLambdaLogGroupName",
+            value=f"/aws/lambda/{production.function_name}",
+        )
+        return created
+
     def _provision_lambda_only(
         self,
         env_name: str,
@@ -937,47 +980,16 @@ class ComputeStack(Construct):
         self._extension_runtime_env = self._provision_extension_infra(
             env_name, aws_account, aws_region
         )
-        handlers_lambda_log_group = logs.LogGroup(
-            self,
-            "HandlersLambdaLogGroup",
-            log_group_name=f"/aws/lambda/{handlers_lambda_function_name(env_name, peer_id)}",
-            removal_policy=RemovalPolicy.DESTROY,
+        stage_fns = self._provision_stage_lambdas(
+            env_name,
+            handlers_lambda_role,
+            getattr(self, "_extension_runtime_env", None),
         )
-        # Seed ZipFile is always unpacked as index.py; peer_packager publish
-        # overwrites Handler to lambda_router.lambda_handler with the real zip.
-        # CDK updates reset Handler even when they leave the zip — deploy_peer_cdk.sh
-        # pins it back after deploy.
-        handlers_fn = aws_lambda_.CfnFunction(
-            self,
-            "HandlersLambda",
-            function_name=handlers_lambda_function_name(env_name, peer_id),
-            role=handlers_lambda_role.role_arn,
-            runtime="python3.12",
-            handler="index.handler",
-            code=aws_lambda_.CfnFunction.CodeProperty(
-                zip_file=(
-                    "def handler(event, context):\n"
-                    "    return {'statusCode': 200, 'body': 'seed'}\n"
-                ),
-            ),
-            timeout=900,
-            memory_size=512,
-            description=DESCRIPTION,
-            environment=handlers_lambda_environment(
-                env_name, getattr(self, "_extension_runtime_env", None)
-            ),
-        )
-        handlers_fn.add_dependency(handlers_lambda_role.node.default_child)  # type: ignore[arg-type]
-        handlers_fn.cfn_options.deletion_policy = CfnDeletionPolicy.DELETE
-        handlers_fn.cfn_options.update_replace_policy = CfnDeletionPolicy.DELETE
         CfnOutput(self, "HandlersLambdaRoleArn", value=handlers_lambda_role.role_arn)
-        CfnOutput(self, "HandlersLambdaLogGroupName", value=handlers_lambda_log_group.log_group_name)
-        CfnOutput(self, "HandlersLambdaFunctionName", value=handlers_fn.function_name)  # type: ignore[arg-type]
         CfnOutput(self, "ComputeType", value="lambda_only")
         self.stable_outputs = {
             "HandlersLambdaRoleArn": handlers_lambda_role.role_arn,
-            "HandlersLambdaLogGroupName": handlers_lambda_log_group.log_group_name,
-            "HandlersLambdaFunctionName": handlers_fn.function_name,  # type: ignore[arg-type]
+            "HandlersLambdaFunctionName": stage_fns["production"].function_name,  # type: ignore[arg-type]
         }
 
     def _make_task_definition(
