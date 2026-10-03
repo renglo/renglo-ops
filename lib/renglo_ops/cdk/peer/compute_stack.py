@@ -921,8 +921,8 @@ class ComputeStack(Construct):
                 description=DESCRIPTION,
                 environment=handlers_lambda_environment(env_name, extra_env),
             )
-            fn.add_dependency(role.node.default_child)  # type: ignore[arg-type]
-            fn.add_dependency(log_group)
+            fn.node.add_dependency(role)
+            fn.node.add_dependency(log_group)
             fn.cfn_options.deletion_policy = CfnDeletionPolicy.DELETE
             fn.cfn_options.update_replace_policy = CfnDeletionPolicy.DELETE
             CfnOutput(self, f"HandlersLambdaFunctionName{cap}", value=fn.function_name)

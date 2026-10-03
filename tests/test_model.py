@@ -135,6 +135,28 @@ def test_help_paths_are_filters() -> None:
     assert "renglo registry deploy" in render("registry")
     assert "renglo registry show" in render("registry")
     assert "renglo registry check PACKAGE VERSION" in render("registry")
+    full = render("")
+    for command in (
+        "renglo help",
+        "renglo init",
+        "renglo config init",
+        "renglo account bootstrap",
+        "renglo stack destroy --stack STACK --yes",
+        "renglo peer destroy --peer-id PEER --yes",
+        "renglo user invite EMAIL --team TEAM --portfolio PORTFOLIO",
+        "renglo publish",
+        "renglo help mail",
+    ):
+        assert command in full
+    for line in full.splitlines():
+        cells = line.split()
+        if len(cells) >= 2 and cells[0] != "renglo":
+            assert cells[0] not in {"init", "doctor", "deploy", "status"}
+    mail = render("mail")
+    assert "renglo help mail" in mail
+    assert "renglo email allow ADDRESS" in mail
+    assert "renglo stack deploy" not in mail
+    assert "renglo help start" in render("no-such-section")
 
 
 def test_refuse_writing_into_the_tool() -> None:
