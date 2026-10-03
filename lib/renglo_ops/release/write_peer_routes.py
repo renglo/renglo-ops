@@ -105,10 +105,13 @@ def _put_ssm(name: str, payload: dict[str, Any], region: str, *, dry_run: bool) 
 # Dead overflow / soak leftovers. Routing lives on peer-routes SSM.
 _LEGACY_PLATFORM_VAR_KEYS = frozenset(
     {
+        "PEER_ROUTES",
+        "PEER_ROUTING",
         "EXTERNAL_HANDLERS_PEER_MAP",
         "EXTERNAL_HANDLERS_HEAVY",
         "EXTERNAL_HANDLERS_ECS_HANDLERS",
         "EXTERNAL_HANDLERS_PEER_ROUTING",
+        "LAMBDA_PEER_HANDLERS_ARN",
         "LAMBDA_EXTERNAL_HANDLERS_ARN",
         "LAMBDA_HANDLERS_FUNCTION_NAME",
         "ECS_CLUSTER",

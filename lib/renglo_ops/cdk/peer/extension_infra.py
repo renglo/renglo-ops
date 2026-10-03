@@ -147,7 +147,11 @@ class ExtensionStack(Construct):
                 )
 
         for key, value in (manifest.get("runtime_defaults") or {}).items():
-            if key in runtime_outputs:
+            if key in runtime_outputs or key in (
+                "EXTERNAL_HANDLERS",
+                "EXTERNAL_HANDLERS_HEAVY",
+                "EXTERNAL_HANDLERS_ECS_HANDLERS",
+            ):
                 continue
             text = str(value).replace("{env}", env_name)
             if text:
@@ -157,6 +161,7 @@ class ExtensionStack(Construct):
         for key, value in extension_config.items():
             if key in (
                 "SECRETS",
+                "EXTERNAL_HANDLERS",
                 "EXTERNAL_HANDLERS_HEAVY",
                 "EXTERNAL_HANDLERS_ECS_HANDLERS",
             ) or not isinstance(value, (str, int, float, bool)):
@@ -183,19 +188,20 @@ class ExtensionStack(Construct):
         CfnOutput(self, "ActionsPolicyName", value=policy_name)
         CfnOutput(self, "ExtensionPath", value=extension_folder.name)
 
-        external_handlers = str(
-            extension_config.get("EXTERNAL_HANDLERS")
-            or runtime_outputs.get("EXTERNAL_HANDLERS")
+        peer_extensions = str(
+            extension_config.get("PEER_EXTENSIONS")
+            or extension_config.get("EXTERNAL_HANDLERS")
+            or runtime_outputs.get("PEER_EXTENSIONS")
             or ""
         ).strip()
-        # May already be present from extension_config / runtime_defaults loops above.
+        runtime_outputs.pop("EXTERNAL_HANDLERS", None)
         runtime_outputs.pop("EXTERNAL_HANDLERS_HEAVY", None)
         runtime_outputs.pop("EXTERNAL_HANDLERS_ECS_HANDLERS", None)
-        if external_handlers and "EXTERNAL_HANDLERS" not in runtime_outputs:
-            runtime_outputs["EXTERNAL_HANDLERS"] = external_handlers
-            CfnOutput(self, "EXTERNAL_HANDLERS", value=external_handlers)
-        elif external_handlers:
-            runtime_outputs["EXTERNAL_HANDLERS"] = external_handlers
+        if peer_extensions and "PEER_EXTENSIONS" not in runtime_outputs:
+            runtime_outputs["PEER_EXTENSIONS"] = peer_extensions
+            CfnOutput(self, "PEER_EXTENSIONS", value=peer_extensions)
+        elif peer_extensions:
+            runtime_outputs["PEER_EXTENSIONS"] = peer_extensions
 
         self.actions_policy = actions_policy
         self.runtime_outputs = runtime_outputs

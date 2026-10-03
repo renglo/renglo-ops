@@ -193,8 +193,8 @@ def peer_for_handle(peers: list[dict[str, Any]], handle: str) -> dict[str, Any] 
     return None
 
 
-def external_handlers_csv(peers: list[dict[str, Any]]) -> str:
-    """Union of catalog .extensions — source of truth for EXTERNAL_HANDLERS membership."""
+def peer_extensions_csv(peers: list[dict[str, Any]]) -> str:
+    """Union of catalog .extensions — handles placed on a peer (``PEER_EXTENSIONS``)."""
     names: list[str] = []
     seen: set[str] = set()
     for peer in peers:
@@ -214,10 +214,11 @@ def handlers_bom_file(repo_root: Path, peer: dict[str, Any]) -> Path:
     return base / f"v{version}.json"
 
 
-def apply_external_handlers_from_peers(vars_block: dict[str, Any], peers: list[dict[str, Any]]) -> None:
-    """Overwrite EXTERNAL_HANDLERS with the catalog union when peers are declared."""
+def apply_peer_extensions_from_peers(vars_block: dict[str, Any], peers: list[dict[str, Any]]) -> None:
+    """Overwrite ``PEER_EXTENSIONS`` with the catalog union when peers are declared."""
     if not peers:
         return
-    csv = external_handlers_csv(peers)
+    csv = peer_extensions_csv(peers)
     if csv:
-        vars_block["EXTERNAL_HANDLERS"] = csv
+        vars_block["PEER_EXTENSIONS"] = csv
+        vars_block.pop("EXTERNAL_HANDLERS", None)

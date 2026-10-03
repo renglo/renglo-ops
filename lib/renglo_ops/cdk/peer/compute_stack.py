@@ -93,6 +93,7 @@ def handlers_lambda_function_name(env_name: str, peer_id: str | None = None) -> 
 
 _SKIP_PEER_EXTENSION_ENV = frozenset(
     {
+        "PEER_EXTENSIONS",
         "EXTERNAL_HANDLERS",
         "EXTERNAL_HANDLERS_HEAVY",
         "EXTERNAL_HANDLERS_ECS_HANDLERS",

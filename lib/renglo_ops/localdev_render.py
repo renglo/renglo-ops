@@ -94,9 +94,9 @@ def _fetch_ingress_secret(
         return ""
 
 
-def _resolve_external_handlers(vars_block: dict[str, str]) -> str:
-    """Return comma-separated extension names with external handlers, not the env name."""
-    raw = str(vars_block.get("EXTERNAL_HANDLERS") or "").strip()
+def _resolve_peer_extensions(vars_block: dict[str, str]) -> str:
+    """Return comma-separated handles placed on a peer, not the env name."""
+    raw = str(vars_block.get("PEER_EXTENSIONS") or vars_block.get("EXTERNAL_HANDLERS") or "").strip()
     wl_name = str(vars_block.get("WL_NAME") or "").strip()
     if raw.lower() == wl_name.lower():
         return ""
@@ -188,8 +188,8 @@ def _render_env_config(
         "ALLOW_DEV_ORIGINS = True",
         "",
         "# Comma-separated extension names with external Lambda/ECS handlers (e.g. pes). Empty = in-process.",
-        f"EXTERNAL_HANDLERS = {_env_config_str(_resolve_external_handlers(vars_block))}",
-        "EXTERNAL_HANDLERS_USE_DEV_DOCKER = ''",
+        f"PEER_EXTENSIONS = {_env_config_str(_resolve_peer_extensions(vars_block))}",
+        "PEER_USE_DEV_DOCKER = ''",
         "",
         "# EventBridge → API universal ingress (from Secrets Manager when available)",
         f"RENGLO_INGRESS_SECRET = {_env_config_str(v('RENGLO_INGRESS_SECRET'))}",

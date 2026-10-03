@@ -568,6 +568,24 @@ def prepare(
             strict=True,
             extra_index_urls=["https://pypi.org/simple"],
         )
+        # Isolated sdist builds (--no-index) can only see this directory.
+        # validate_email and other legacy packages need setuptools there.
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "download",
+                "--dest",
+                str(wheelhouse),
+                "--only-binary=:all:",
+                "--index-url",
+                "https://pypi.org/simple",
+                "setuptools>=40.8.0",
+                "wheel",
+            ],
+            check=True,
+        )
         if with_large_deps:
             extras = large_extra_specs(ordered, wheelhouse)
             if extras:

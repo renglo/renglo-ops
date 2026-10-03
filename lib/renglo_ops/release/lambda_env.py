@@ -44,10 +44,11 @@ CI_ONLY_ENV_KEYS = frozenset(
     }
 )
 CONSOLE_ONLY_ENV_PREFIXES = ("VITE_", "AMPLIFY_")
-# Light vs heavy lives on SSM peer-routes. Soak alias and overflow identity
-# must not be copied onto the hub or a peer Lambda.
+# Peer routes live on SSM. These keys must not be copied onto the hub or a peer Lambda.
 HANDLERS_ONLY_ENV_KEYS = frozenset(
     {
+        "PEER_ROUTES",
+        "PEER_ROUTING",
         "EXTERNAL_HANDLERS_PEER_MAP",
         "EXTERNAL_HANDLERS_HEAVY",
         "EXTERNAL_HANDLERS_ECS_HANDLERS",
@@ -59,6 +60,7 @@ HANDLERS_ONLY_ENV_KEYS = frozenset(
 # Overflow singleton identity — peer-routes owns routing.
 OVERFLOW_IDENTITY_ENV_KEYS = frozenset(
     {
+        "LAMBDA_PEER_HANDLERS_ARN",
         "LAMBDA_EXTERNAL_HANDLERS_ARN",
         "LAMBDA_HANDLERS_FUNCTION_NAME",
         "LAMBDA_FUNCTION_NAME",
