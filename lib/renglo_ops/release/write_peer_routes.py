@@ -57,13 +57,35 @@ def _csv_list(raw: str) -> list[str]:
     return [part.strip() for part in (raw or "").split(",") if part.strip()]
 
 
+def _stage_function_name(outputs: dict[str, str], stage: str) -> str:
+    """Stage output, with the unsuffixed name as a production fallback."""
+    named = _output(outputs, f"HandlersLambdaFunctionName{stage.capitalize()}")
+    if named:
+        return named
+    if stage == "production":
+        return _output(outputs, "HandlersLambdaFunctionName")
+    return ""
+
+
+def stage_route_document(per_stage: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """SSM body. ``stages`` is what a hub of that stage reads.
+
+    ``routes`` stays the production map so a hub that has not picked a stage
+    yet still reaches the production peer.
+    """
+    stages = {stage: routes for stage, routes in per_stage.items() if routes}
+    routes = stages.get("production") or next(iter(stages.values()), {})
+    return {"stages": stages, "routes": routes}
+
+
 def _route_from_outputs(
     extensions: list[str],
     outputs: dict[str, str],
     region: str,
     account: str,
+    function_name: str = "",
 ) -> dict[str, Any]:
-    fn = _output(outputs, "HandlersLambdaFunctionName")
+    fn = (function_name or _output(outputs, "HandlersLambdaFunctionName")).strip()
     if not fn:
         return {}
     route: dict[str, Any] = {
@@ -181,7 +203,7 @@ def main() -> int:
 
         account = boto3.client("sts", region_name=args.region).get_caller_identity()["Account"]
 
-    merged: dict[str, Any] = {}
+    per_stage: dict[str, dict[str, Any]] = {"staging": {}, "production": {}}
     for peer in peers:
         region = peer["aws_region"] or args.region
         stack = peer_stack_name(args.env_name, peer["id"])
@@ -189,17 +211,25 @@ def main() -> int:
         if not outputs:
             print(f"skip {stack} (no outputs)")
             continue
-        route = _route_from_outputs(peer["extensions"], outputs, region, account)
-        if not route:
+        mapped = False
+        for stage in ("staging", "production"):
+            fn = _stage_function_name(outputs, stage)
+            route = _route_from_outputs(
+                peer["extensions"], outputs, region, account, function_name=fn
+            )
+            if not route:
+                continue
+            per_stage[stage].update(route)
+            mapped = True
+            print(f"mapped {stack} {stage} → {fn} ({','.join(peer['extensions'])})")
+        if not mapped:
             print(
                 f"skip {stack} (no HandlersLambdaFunctionName output)",
                 file=sys.stderr,
             )
-            continue
-        merged.update(route)
-        print(f"mapped {stack} → {','.join(peer['extensions'])}")
 
-    if not merged:
+    document = stage_route_document(per_stage)
+    if not document["routes"]:
         print(
             "ERROR: no peer routes resolved; not writing empty SSM map",
             file=sys.stderr,
@@ -207,7 +237,7 @@ def main() -> int:
         return 1
 
     routes_path = f"/{args.env_name}/bootstrap/peer-routes"
-    _put_ssm(routes_path, {"routes": merged}, args.region, dry_run=args.dry_run)
+    _put_ssm(routes_path, document, args.region, dry_run=args.dry_run)
     for stage in ("staging", "production"):
         _strip_legacy_peer_map_from_platform_vars(
             f"/{args.env_name}/bootstrap/platform-vars/{stage}",

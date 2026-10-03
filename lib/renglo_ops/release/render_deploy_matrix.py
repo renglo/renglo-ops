@@ -45,7 +45,7 @@ DEPLOY_INPUT_SSM_TEMPLATE = "/{id}/bootstrap/deploy-input"
 
 from peers import (  # noqa: E402
     handlers_bom_file,
-    handlers_unit_name,
+    handlers_lambda_function_name,
     load_peers,
     oidc_handlers_role_name,
     peer_stack_name,
@@ -276,11 +276,13 @@ def _peer_rows(data: dict, repo_root: Path) -> list[dict[str, Any]]:
                     "task_size": peer["task_size"],
                     "extensions": extensions,
                     "stack_name": peer_stack_name(env_id, peer["id"]),
-                    "function_name": handlers_unit_name(env_id, peer["id"]),
+                    "function_name": handlers_lambda_function_name(
+                        env_id, peer["id"], deploy_stage
+                    ),
                     "oidc_role_arn": _oidc_peer_handlers_role_arn(
                         account, env_id, deploy_stage, peer["id"]
                     ),
-                    "ssm_parameter": _deploy_input_parameter(env_id),
+                    "ssm_parameter": _platform_vars_parameter(env_id, deploy_stage),
                 }
             )
     return rows
