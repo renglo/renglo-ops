@@ -63,6 +63,47 @@ def test_tenant_projects_legacy_catalog_shapes() -> None:
     assert projected["registries"][1]["domain_owner"] == "339713094352"
 
 
+def test_renglo_yaml_projection_stays_in_the_checkout(tmp_path: Path) -> None:
+    from renglo_ops.release.__main__ import _project
+
+    src = tmp_path / "renglo.yaml"
+    src.write_text(
+        yaml.safe_dump(
+            {
+                "name": "apollo1",
+                "github": {"repo": "teamamericaai/apollo-bom"},
+                "email": {"from": "a@b.c", "identity": "email"},
+                "accounts": {
+                    "staging": {"id": "858045071584", "region": "us-east-1", "enabled": True},
+                },
+                "placement": {
+                    "hub": ["renglo-data"],
+                    "peers": {
+                        "tourbot": {
+                            "compute": "lambda_only",
+                            "extensions": ["tourbotlink"],
+                            "peers_bom": "0.1.1",
+                        }
+                    },
+                },
+                "release": {"bom": "0.1.1", "console": "0.1.1"},
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    projected, made = _project(str(src))
+    try:
+        path = Path(projected)
+        assert made
+        assert path.parent == tmp_path
+        assert path.name != "renglo.yaml"
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        assert data["peers"]["tourbot"]["peers_bom"] == "0.1.1"
+    finally:
+        Path(projected).unlink(missing_ok=True)
+
+
 def test_renglo_yaml_round_trip(tmp_path: Path) -> None:
     tenant = tenant_from_dict(
         {

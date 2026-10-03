@@ -183,7 +183,7 @@ def main() -> int:
     parser.add_argument(
         "--targets",
         default="",
-        help="deploy_targets.yml; when peers: is set, overwrite EXTERNAL_HANDLERS with the catalog union",
+        help="deploy_targets.yml; when peers: is set, overwrite PEER_EXTENSIONS with the catalog union",
     )
     args = parser.parse_args()
 
@@ -223,15 +223,15 @@ def main() -> int:
             import yaml
         except ImportError as exc:
             raise RuntimeError("PyYAML required for --targets") from exc
-        from peers import apply_external_handlers_from_peers, load_peers
+        from peers import apply_peer_extensions_from_peers, load_peers
 
         targets = yaml.safe_load(targets_path.read_text(encoding="utf-8")) or {}
         vars_block = payload.setdefault("VARS", {})
         if not isinstance(vars_block, dict):
             vars_block = {}
             payload["VARS"] = vars_block
-        apply_external_handlers_from_peers(vars_block, load_peers(targets))
-        print(f"Derived EXTERNAL_HANDLERS from {targets_path} peers catalog")
+        apply_peer_extensions_from_peers(vars_block, load_peers(targets))
+        print(f"Derived PEER_EXTENSIONS from {targets_path} peers catalog")
 
     if args.output:
         out = Path(args.output)

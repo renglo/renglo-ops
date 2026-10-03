@@ -195,11 +195,13 @@ def _delete_ecr_s3_iam(
 
 def _strip_ssm_overflow(session, env_name: str, execute: bool) -> None:
     keys = (
+        "LAMBDA_PEER_HANDLERS_ARN",
         "LAMBDA_EXTERNAL_HANDLERS_ARN",
         "LAMBDA_HANDLERS_FUNCTION_NAME",
         "ECS_CLUSTER",
         "ECS_TASK_DEFINITION",
         "ECS_RESULTS_BUCKET",
+        "PEER_ROUTING",
         "EXTERNAL_HANDLERS_PEER_ROUTING",
     )
     print(f"SSM strip overflow keys from /{env_name}/bootstrap/platform-vars/* : {', '.join(keys)}")

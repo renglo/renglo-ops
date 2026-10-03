@@ -141,7 +141,7 @@ COPY packages.txt /build/packages.txt
 COPY lambda_index_shim.py /build/lambda_index_shim.py
 RUN python3.12 -m pip install --upgrade pip setuptools wheel -q \\
  && mkdir -p /build/output \\
- && python3.12 -m pip install --no-cache-dir --no-index --find-links /build/wheelhouse --target /build/output -r /build/packages.txt \\
+ && python3.12 -m pip install --no-cache-dir --no-index --no-build-isolation --find-links /build/wheelhouse --target /build/output -r /build/packages.txt \\
  && cp /build/assets/lambda_router.py /build/output/ \\
  && cp /build/lambda_index_shim.py /build/output/index.py \\
  && if [ -f /build/assets/handlers_config.json ]; then cp /build/assets/handlers_config.json /build/output/; fi \\
