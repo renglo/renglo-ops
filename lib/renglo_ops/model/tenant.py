@@ -30,6 +30,19 @@ class RegistryRef:
 
 
 @dataclass
+class StagingPins:
+    """Candidate release. Production keys stay in place until this block is promoted."""
+
+    platform: str = ""
+    bom: str = ""
+    console: str = ""
+    peers: dict[str, str] = field(default_factory=dict)
+
+    def active(self) -> bool:
+        return bool(self.platform or self.bom or self.console or self.peers)
+
+
+@dataclass
 class Tenant:
     name: str
     github_repo: str
@@ -39,6 +52,7 @@ class Tenant:
     github_repo_id: str = ""
     email_hosted_zone_id: str = ""
     platform: str = ""
+    staging: StagingPins | None = None
     accounts: dict[str, Account] = field(default_factory=dict)
     registries: list[RegistryRef] = field(default_factory=list)
     placement_hub: list[str] = field(default_factory=list)
@@ -90,6 +104,37 @@ def _account(raw: Any, label: str) -> Account:
         region=str(data.get("region") or "us-east-1").strip() or "us-east-1",
         enabled=bool(data.get("enabled", False)),
     )
+
+
+def _staging_pins(raw: Any) -> StagingPins | None:
+    if raw is None:
+        return None
+    data = _mapping(raw, "staging")
+    if not data:
+        return None
+    peers_raw = data.get("peers") or {}
+    if not isinstance(peers_raw, dict):
+        raise RengloOpsError("staging.peers must be a mapping")
+    peers: dict[str, str] = {}
+    for key, value in peers_raw.items():
+        peer_id = str(key).strip()
+        if not peer_id:
+            continue
+        if isinstance(value, dict):
+            version = str(value.get("peers_bom") or "").strip()
+        else:
+            version = str(value or "").strip()
+        if version:
+            peers[peer_id] = version
+    pins = StagingPins(
+        platform=str(data.get("platform") or "").strip(),
+        bom=str(data.get("bom") or "").strip(),
+        console=str(data.get("console") or "").strip(),
+        peers=peers,
+    )
+    if not pins.active():
+        return None
+    return pins
 
 
 def tenant_from_dict(data: dict[str, Any], *, path: Path | None = None) -> Tenant:
@@ -148,6 +193,7 @@ def tenant_from_dict(data: dict[str, Any], *, path: Path | None = None) -> Tenan
     if not isinstance(peers, dict):
         raise RengloOpsError("placement.peers must be a mapping")
     release = _mapping(data.get("release"), "release")
+    staging = _staging_pins(data.get("staging"))
     defaults = _mapping(data.get("defaults"), "defaults")
     env = _mapping(data.get("env"), "env")
     hours = int(defaults.get("cognito_token_hours") or 24)
@@ -162,6 +208,7 @@ def tenant_from_dict(data: dict[str, Any], *, path: Path | None = None) -> Tenan
         email_identity=identity,
         email_hosted_zone_id=str(email.get("hosted_zone_id") or "").strip(),
         platform=str(data.get("platform") or "").strip(),
+        staging=staging,
         accounts=accounts,
         registries=registries,
         placement_hub=[str(item).strip() for item in hub if str(item).strip()],
@@ -204,7 +251,7 @@ def tenant_to_dict(tenant: Tenant) -> dict[str, Any]:
         if item.scopes:
             row["scopes"] = list(item.scopes)
         registries.append(row)
-    return {
+    document = {
         "name": tenant.name,
         "github": github,
         "email": email,
@@ -220,6 +267,18 @@ def tenant_to_dict(tenant: Tenant) -> dict[str, Any]:
             "cognito_token_hours": tenant.cognito_token_hours,
         },
     }
+    if tenant.staging and tenant.staging.active():
+        staging: dict[str, Any] = {}
+        if tenant.staging.platform:
+            staging["platform"] = tenant.staging.platform
+        if tenant.staging.bom:
+            staging["bom"] = tenant.staging.bom
+        if tenant.staging.console:
+            staging["console"] = tenant.staging.console
+        if tenant.staging.peers:
+            staging["peers"] = dict(tenant.staging.peers)
+        document["staging"] = staging
+    return document
 
 
 def dump_tenant(tenant: Tenant) -> str:

@@ -16,6 +16,13 @@ from renglo_ops.model.legacy import deploy_targets_dict
 from renglo_ops.model.tenant import load_tenant
 
 
+def _stage_from_args(args: list[str]) -> str:
+    for index, arg in enumerate(args):
+        if arg == "--stage" and index + 1 < len(args):
+            return args[index + 1].strip()
+    return ""
+
+
 def _projected(args: list[str]) -> tuple[list[str], list[str]]:
     """Project catalog paths. Leave ``--overlay-env renglo.yaml`` as the tenant file.
 
@@ -25,6 +32,7 @@ def _projected(args: list[str]) -> tuple[list[str], list[str]]:
     out: list[str] = []
     created: list[str] = []
     overlay = False
+    stage = _stage_from_args(args)
     for arg in args:
         if overlay:
             out.append(arg)
@@ -34,14 +42,14 @@ def _projected(args: list[str]) -> tuple[list[str], list[str]]:
             out.append(arg)
             overlay = True
             continue
-        projected, made = _project(arg)
+        projected, made = _project(arg, stage=stage)
         out.append(projected)
         if made:
             created.append(projected)
     return out, created
 
 
-def _project(arg: str) -> tuple[str, bool]:
+def _project(arg: str, *, stage: str = "") -> tuple[str, bool]:
     """Rewrite a ``renglo.yaml`` argument into a legacy catalog file beside it.
 
     Scripts such as ``render_deploy_matrix`` treat the targets file's parent as
@@ -60,7 +68,11 @@ def _project(arg: str) -> tuple[str, bool]:
         dir=resolved.parent,
         encoding="utf-8",
     )
-    yaml.safe_dump(deploy_targets_dict(load_tenant(resolved)), handle, sort_keys=False)
+    yaml.safe_dump(
+        deploy_targets_dict(load_tenant(resolved), stage=stage),
+        handle,
+        sort_keys=False,
+    )
     handle.close()
     return handle.name, True
 

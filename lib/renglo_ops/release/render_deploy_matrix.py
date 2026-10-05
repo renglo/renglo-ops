@@ -13,7 +13,8 @@ Nested schema. The tenants: key is the AWS prefix (customer-config env_name):
 Pipelines:
   backend / console — one row per (tenant, stage) with OIDC + SSM fields.
   handlers — one row per tenant (overflow node; deploy_stage from handlers_bom JSON).
-  peers — one row per (tenant, peer) from the ``peers:`` catalog.
+  peers — one row per (tenant, peer, enabled stage). Stages come from
+  ``tenants.*.stages``, the same flags as backend and console.
 
 Flags:
   --build-bom           print backend/hub BOM version only
@@ -142,6 +143,11 @@ def _stage_enabled(stage_cfg: Any) -> bool:
     return False
 
 
+def _enabled_stages(stages: dict) -> list[str]:
+    """Enabled account stages, staging then production."""
+    return [stage for stage in VALID_STAGES if _stage_enabled(stages.get(stage))]
+
+
 def _load_handlers_deploy_stage(handlers_dir: Path, version: str) -> str:
     path = handlers_dir / f"v{version}.json"
     if not path.is_file():
@@ -233,6 +239,27 @@ def _handlers_rows(data: dict, repo_root: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _peer_for_stage(peer: dict[str, Any], stage: str, data: dict) -> dict[str, Any]:
+    """Use the staging block's peer pin when this row deploys staging."""
+    if stage != "staging":
+        return peer
+    pins = data.get("staging_pins")
+    if not isinstance(pins, dict):
+        return peer
+    peers = pins.get("peers")
+    version = ""
+    if isinstance(peers, dict):
+        version = str(peers.get(peer["id"]) or "").strip()
+    if not version:
+        version = str(pins.get("bom") or "").strip()
+    if not version:
+        return peer
+    staged = dict(peer)
+    staged["peers_bom"] = version
+    staged["handlers_bom"] = version
+    return staged
+
+
 def _peer_rows(data: dict, repo_root: Path) -> list[dict[str, Any]]:
     peers = load_peers(data)
     tenants_raw = data.get("tenants") or {}
@@ -252,39 +279,41 @@ def _peer_rows(data: dict, repo_root: Path) -> list[dict[str, Any]]:
             continue
         if not isinstance(stages, dict):
             continue
-        if not any(_stage_enabled(cfg) for cfg in stages.values()):
+        enabled = _enabled_stages(stages)
+        if not enabled:
             continue
         for peer in peers:
-            bom_file = handlers_bom_file(repo_root, peer)
-            if not bom_file.is_file():
-                raise RuntimeError(f"Peer handlers BOM not found: {bom_file}")
-            deploy_stage = _load_handlers_deploy_stage(bom_file.parent, str(peer["handlers_bom"]).lstrip("v"))
             region = peer["aws_region"] or tenant_region
             extensions = ",".join(peer["extensions"])
-            rows.append(
-                {
-                    "tenant": tenant,
-                    "peer": peer["id"],
-                    "id": env_id,
-                    "aws_account": account,
-                    "aws_region": region,
-                    "deploy_stage": deploy_stage,
-                    "handlers_bom": peer["handlers_bom"],
-                    "handlers_bom_file": str(bom_file.relative_to(repo_root)),
-                    "handlers_compute": _peer_handlers_compute(peer["compute"]),
-                    "compute": peer["compute"],
-                    "task_size": peer["task_size"],
-                    "extensions": extensions,
-                    "stack_name": peer_stack_name(env_id, peer["id"]),
-                    "function_name": handlers_lambda_function_name(
-                        env_id, peer["id"], deploy_stage
-                    ),
-                    "oidc_role_arn": _oidc_peer_handlers_role_arn(
-                        account, env_id, deploy_stage, peer["id"]
-                    ),
-                    "ssm_parameter": _platform_vars_parameter(env_id, deploy_stage),
-                }
-            )
+            for stage in enabled:
+                staged = _peer_for_stage(peer, stage, data)
+                bom_file = handlers_bom_file(repo_root, staged)
+                if not bom_file.is_file():
+                    raise RuntimeError(f"Peer handlers BOM not found: {bom_file}")
+                rows.append(
+                    {
+                        "tenant": tenant,
+                        "peer": peer["id"],
+                        "id": env_id,
+                        "aws_account": account,
+                        "aws_region": region,
+                        "deploy_stage": stage,
+                        "handlers_bom": staged["handlers_bom"],
+                        "handlers_bom_file": str(bom_file.relative_to(repo_root)),
+                        "handlers_compute": _peer_handlers_compute(peer["compute"]),
+                        "compute": peer["compute"],
+                        "task_size": peer["task_size"],
+                        "extensions": extensions,
+                        "stack_name": peer_stack_name(env_id, peer["id"]),
+                        "function_name": handlers_lambda_function_name(
+                            env_id, peer["id"], stage
+                        ),
+                        "oidc_role_arn": _oidc_peer_handlers_role_arn(
+                            account, env_id, stage, peer["id"]
+                        ),
+                        "ssm_parameter": _platform_vars_parameter(env_id, stage),
+                    }
+                )
     return rows
 
 

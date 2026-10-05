@@ -49,7 +49,7 @@ KNOWN_TOP = {
     "handlers_bom",
     "handlers_compute",
 }
-PIN_ORDER = ("version", "created_at", "description", "train", "deploy_stage", "python", "npm", "repos")
+PIN_ORDER = ("version", "created_at", "description", "train", "python", "npm", "repos")
 _ROLE_LINE = re.compile(r"^\s*role\s*=\s*['\"]?([^#'\"]+)")
 _PIN_VERSION = re.compile(
     r"^v(?P<ver>\d+(?:\.\d+){0,2}(?:[-.]?(?:rc|a|b|dev)\d*)?)\.json$",
@@ -797,7 +797,6 @@ def _align_pins(
             attention.append(f"{rel_dir}/{ver}.json not created (no matching python pins in bom/{ver}.json)")
             continue
         doc = _pin_meta(working)
-        doc["deploy_stage"] = str(working.get("deploy_stage") or "staging")
         doc["python"] = pinned
         doc["repos"] = {}
         _write_text(peer_path, _dump_pin(doc), apply=apply)

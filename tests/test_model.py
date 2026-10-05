@@ -104,6 +104,43 @@ def test_renglo_yaml_projection_stays_in_the_checkout(tmp_path: Path) -> None:
         Path(projected).unlink(missing_ok=True)
 
 
+def test_staging_block_overlays_only_the_staging_projection() -> None:
+    tenant = tenant_from_dict(
+        {
+            "name": "apollo1",
+            "github": {"repo": "teamamericaai/apollo-bom"},
+            "email": {"from": "a@b.c", "identity": "email"},
+            "platform": "0.1.4",
+            "accounts": {
+                "staging": {"id": "858045071584", "region": "us-east-1", "enabled": True},
+                "production": {"id": "858045071584", "region": "us-east-1", "enabled": True},
+            },
+            "placement": {
+                "hub": ["renglo-data"],
+                "peers": {"tourbot": {"compute": "lambda_only", "peers_bom": "0.1.1"}},
+            },
+            "release": {"bom": "0.1.1", "console": "0.1.1"},
+            "staging": {
+                "platform": "0.1.5rc1",
+                "bom": "0.1.2",
+                "console": "0.1.2",
+                "peers": {"tourbot": "0.1.2"},
+            },
+        }
+    )
+    production = deploy_targets_dict(tenant)
+    staging = deploy_targets_dict(tenant, stage="staging")
+    assert production["bom"] == "0.1.1"
+    assert production["console_bom"] == "0.1.1"
+    assert production["helper"]["version"] == "0.1.4"
+    assert production["peers"]["tourbot"]["peers_bom"] == "0.1.1"
+    assert production["staging_pins"]["peers"]["tourbot"] == "0.1.2"
+    assert staging["bom"] == "0.1.2"
+    assert staging["console_bom"] == "0.1.2"
+    assert staging["helper"]["version"] == "0.1.5rc1"
+    assert staging["peers"]["tourbot"]["peers_bom"] == "0.1.1"
+
+
 def test_renglo_yaml_round_trip(tmp_path: Path) -> None:
     tenant = tenant_from_dict(
         {

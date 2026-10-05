@@ -277,7 +277,6 @@ def split_master_bom(
     console = {**meta, "npm": console_npm, "repos": _filter_repos(all_repos, console_repo_keys)}
 
     peer_boms: dict[str, dict[str, Any]] = {}
-    deploy_stage = str(master.get("deploy_stage", "")).strip() or "staging"
     target_peers = {peer_id: placement.peers[peer_id]} if peer_id else placement.peers
     for pid, dists in target_peers.items():
         peer_names = set(PEER_PYTHON_CORE)
@@ -291,7 +290,6 @@ def split_master_bom(
             if repo:
                 peer_repo_keys.add(repo)
         peer_meta = dict(meta)
-        peer_meta["deploy_stage"] = deploy_stage
         peer_meta["description"] = peer_meta.get("description") or f"Peer {pid}."
         peer_boms[pid] = {
             **peer_meta,
@@ -350,7 +348,6 @@ def merge_union_bom(root: Path, version: str) -> dict[str, Any]:
         "created_at": meta.get("created_at", ""),
         "description": meta.get("description", ""),
         "train": meta.get("train", ""),
-        "deploy_stage": meta.get("deploy_stage", ""),
         "python": python,
         "npm": npm,
         "repos": repos,

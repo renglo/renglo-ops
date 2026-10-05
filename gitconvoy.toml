@@ -1,6 +1,4 @@
 # git-convoy membership marker (repo root).
-# role: product | ops | bom | incubating
-role = "ops"
-version = "python"
-publish = "python-wheel"
-pin = "registry"
+# Product, not ops: platform changes ride the feature and the release train.
+# When this repo is on the train, git convoy bom pins platform to that version.
+role = "product"

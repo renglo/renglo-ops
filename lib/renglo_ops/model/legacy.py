@@ -25,7 +25,7 @@ def customer_config_dict(tenant: Tenant) -> dict[str, Any]:
     }
 
 
-def deploy_targets_dict(tenant: Tenant) -> dict[str, Any]:
+def deploy_targets_dict(tenant: Tenant, *, stage: str = "") -> dict[str, Any]:
     primary = tenant.primary_account()
     staging = tenant.accounts.get("staging")
     production = tenant.accounts.get("production")
@@ -41,7 +41,7 @@ def deploy_targets_dict(tenant: Tenant) -> dict[str, Any]:
         if item.scopes:
             row["npm_scopes"] = list(item.scopes)
         registries.append(row)
-    return {
+    projected = {
         "bom": tenant.release_bom,
         "console_bom": tenant.release_console,
         "hub": {"python": list(tenant.placement_hub)},
@@ -60,3 +60,37 @@ def deploy_targets_dict(tenant: Tenant) -> dict[str, Any]:
             }
         },
     }
+    pins = _staging_pins(tenant)
+    if pins:
+        projected["staging_pins"] = pins
+    _apply_stage(projected, stage)
+    return projected
+
+
+def _staging_pins(tenant: Tenant) -> dict[str, Any]:
+    pins = tenant.staging
+    if pins is None or not pins.active():
+        return {}
+    return {
+        "bom": pins.bom,
+        "console_bom": pins.console,
+        "platform": pins.platform,
+        "peers": dict(pins.peers),
+    }
+
+
+def _apply_stage(projected: dict[str, Any], stage: str) -> None:
+    """Point the catalog's release fields at the staging block for a staging run."""
+    if stage != "staging":
+        return
+    pins = projected.get("staging_pins")
+    if not isinstance(pins, dict) or not pins:
+        return
+    if pins.get("bom"):
+        projected["bom"] = pins["bom"]
+    if pins.get("console_bom"):
+        projected["console_bom"] = pins["console_bom"]
+    if pins.get("platform"):
+        helper = projected.get("helper")
+        if isinstance(helper, dict):
+            helper["version"] = pins["platform"]
