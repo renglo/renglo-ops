@@ -53,10 +53,6 @@ def _existing_secrets(path: Path) -> dict[str, str]:
         "CSRF_SESSION_KEY",
         "RENGLO_INGRESS_SECRET",
         "OPENAI_API_KEY",
-        "GOOGLE_OAUTH_CLIENT_ID",
-        "GOOGLE_OAUTH_CLIENT_SECRET",
-        "GMAIL_OAUTH_REDIRECT_URI",
-        "OAUTH_STATE_SECRET",
     ):
         prefix = f"{key} = "
         for line in text.splitlines():
@@ -195,15 +191,6 @@ def _render_env_config(
         f"RENGLO_INGRESS_SECRET = {_env_config_str(v('RENGLO_INGRESS_SECRET'))}",
         f"WEBHOOK_EDGE_BASE_URL = {_env_config_str(v('WEBHOOK_EDGE_BASE_URL'))}",
         f"RENGLO_INGRESS_DESTINATION = {_env_config_str(v('RENGLO_INGRESS_DESTINATION') or ((v('WL_NAME') or '') + '-renglo-process' if v('WL_NAME') else ''))}",
-        "",
-        "# Gmail extension — platform Google OAuth client (not stored in SSM).",
-        "# Create once in GCP; tenants only click Connect.",
-        f"GOOGLE_OAUTH_CLIENT_ID = {_env_config_str(v('GOOGLE_OAUTH_CLIENT_ID'))}",
-        f"GOOGLE_OAUTH_CLIENT_SECRET = {_env_config_str(v('GOOGLE_OAUTH_CLIENT_SECRET'))}",
-        "# Optional override; default is {BASE_URL}/_schd/gmail/oauth_callback",
-        f"GMAIL_OAUTH_REDIRECT_URI = {_env_config_str(v('GMAIL_OAUTH_REDIRECT_URI'))}",
-        "# Optional; falls back to AUTH_SECRET / SECRET_KEY for OAuth state HMAC",
-        f"OAUTH_STATE_SECRET = {_env_config_str(v('OAUTH_STATE_SECRET'))}",
         "",
     ]
     return "\n".join(lines) + "\n"
@@ -440,10 +427,6 @@ def run_write_local_config(
     if preserve_secrets:
         for key in (
             "OPENAI_API_KEY",
-            "GOOGLE_OAUTH_CLIENT_ID",
-            "GOOGLE_OAUTH_CLIENT_SECRET",
-            "GMAIL_OAUTH_REDIRECT_URI",
-            "OAUTH_STATE_SECRET",
         ):
             if key not in vars_block or not str(vars_block.get(key) or "").strip():
                 preserved = existing.get(key) or ""
