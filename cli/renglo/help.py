@@ -356,6 +356,24 @@ SECTIONS: list[Section] = [
                 ],
             ),
             Section(
+                "webhook",
+                "Send a portfolio's webhooks to staging",
+                [
+                    (
+                        "renglo webhook status",
+                        "Show the webhook edge, the callback URL, and whether any portfolio is on staging.",
+                    ),
+                    (
+                        "renglo webhook stage PORTFOLIO",
+                        "Deliver that portfolio's webhooks to the staging API.",
+                    ),
+                    (
+                        "renglo webhook unstage PORTFOLIO",
+                        "Deliver that portfolio's webhooks to production again.",
+                    ),
+                ],
+            ),
+            Section(
                 "people",
                 "Add an admin and invite a user",
                 [

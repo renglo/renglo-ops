@@ -734,6 +734,53 @@ def _cmd_admin_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _webhook_clients(args: argparse.Namespace):
+    tenant, _profile, _region, session = _operator_clients(args)
+    return tenant, session.client("events"), session.client("ssm")
+
+
+def _cmd_webhook_status(args: argparse.Namespace) -> int:
+    from renglo.webhook import format_webhook_report
+
+    tenant, _profile, _region, session = _operator_clients(args)
+    print(
+        format_webhook_report(
+            session.client("events"),
+            tenant.name,
+            lambda_client=session.client("lambda"),
+            apigw=session.client("apigatewayv2"),
+        )
+    )
+    return 0
+
+
+def _cmd_webhook_stage(args: argparse.Namespace) -> int:
+    from renglo.operate import platform_vars
+    from renglo.webhook import stage_portfolio
+
+    tenant, events, ssm = _webhook_clients(args)
+    staging = platform_vars(ssm, tenant.name, "staging")
+    production = platform_vars(ssm, tenant.name, "production")
+    print(
+        stage_portfolio(
+            events,
+            env_name=tenant.name,
+            portfolio=args.portfolio,
+            staging_base_url=staging.get("BASE_URL") or "",
+            role_arn=production.get("ROLE_ARN") or staging.get("ROLE_ARN") or "",
+        )
+    )
+    return 0
+
+
+def _cmd_webhook_unstage(args: argparse.Namespace) -> int:
+    from renglo.webhook import unstage_portfolio
+
+    tenant, events, _ssm = _webhook_clients(args)
+    print(unstage_portfolio(events, env_name=tenant.name, portfolio=args.portfolio))
+    return 0
+
+
 def _cmd_user_invite(args: argparse.Namespace) -> int:
     from renglo.operate import cognito_id_token, invite_user, platform_vars
 
@@ -854,6 +901,14 @@ def main(argv: list[str] | None = None) -> int:
     email_allow.add_argument("address")
     email_sub.add_parser("allow-status")
 
+    webhook = sub.add_parser("webhook")
+    webhook_sub = webhook.add_subparsers(dest="webhook_cmd")
+    webhook_sub.add_parser("status")
+    webhook_stage = webhook_sub.add_parser("stage")
+    webhook_stage.add_argument("portfolio")
+    webhook_unstage = webhook_sub.add_parser("unstage")
+    webhook_unstage.add_argument("portfolio")
+
     admin = sub.add_parser("admin")
     admin_sub = admin.add_subparsers(dest="admin_cmd")
     admin_create = admin_sub.add_parser("create")
@@ -964,6 +1019,14 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_email_allow(args)
         if args.cmd == "email" and args.email_cmd == "allow-status":
             return _cmd_email_allow_status(args)
+        if args.cmd == "webhook" and args.webhook_cmd == "status":
+            return _cmd_webhook_status(args)
+        if args.cmd == "webhook" and args.webhook_cmd == "stage":
+            return _cmd_webhook_stage(args)
+        if args.cmd == "webhook" and args.webhook_cmd == "unstage":
+            return _cmd_webhook_unstage(args)
+        if args.cmd == "webhook":
+            raise RengloOpsError("pass status, stage PORTFOLIO, or unstage PORTFOLIO")
         if args.cmd == "admin" and args.admin_cmd == "create":
             return _cmd_admin_create(args)
         if args.cmd == "admin" and args.admin_cmd == "show":
