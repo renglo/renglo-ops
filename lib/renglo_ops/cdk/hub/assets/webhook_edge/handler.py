@@ -15,6 +15,8 @@ import base64
 import hmac
 import json
 import os
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import boto3
@@ -195,6 +197,8 @@ def _handle_post(
         "raw_body": body,
         "headers": forwarded,
         "query": _qs(event),
+        "webhook_edge_receipt_id": str(uuid.uuid4()),
+        "webhook_edge_enqueued_at": datetime.now(timezone.utc).isoformat(),
     }
     # Convenience for WhatsApp inbound (also derived from headers at API)
     if "x-hub-signature-256" in forwarded:
@@ -204,7 +208,7 @@ def _handle_post(
 
     try:
         events = boto3.client("events")
-        events.put_events(
+        put_resp = events.put_events(
             Entries=[
                 {
                     "Source": EVENT_SOURCE,
@@ -214,7 +218,14 @@ def _handle_post(
                 }
             ]
         )
-        print(f"EventBridge enqueued for {portfolio}/{org}/{channel}")
+        entries = put_resp.get("Entries") or []
+        if entries and entries[0].get("EventId"):
+            print(
+                f"EventBridge enqueued for {portfolio}/{org}/{channel} "
+                f"event_id={entries[0]['EventId']} receipt={detail['webhook_edge_receipt_id']}"
+            )
+        else:
+            print(f"EventBridge enqueued for {portfolio}/{org}/{channel}")
     except Exception as exc:
         # Still ACK to avoid producer retry storms; processing can be retried manually.
         print(f"EventBridge put_events failed: {exc}")

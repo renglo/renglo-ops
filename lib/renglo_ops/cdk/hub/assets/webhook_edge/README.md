@@ -7,10 +7,12 @@ Producer → HTTP API → {env}-webhook-edge → PutEvents
                               ↓
                     EventBridge rule {env}-renglo-webhook
                               ↓
-              API Destination → POST /_schd/ingress (X-Renglo-Ingress-Secret)
+              API Destination → POST /_schd/ingress → 202 Accepted (typical)
                               ↓
-                    extension handler (e.g. whatsapp/inbound)
+                    async worker → extension handler (e.g. whatsapp/inbound)
 ```
+
+EventBridge API destinations time out around **5 seconds**; ingress ACKs with **202** and runs the handler in a separate Lambda invocation so the agent can take the full backend timeout before replying on-channel (WhatsApp Graph, etc.).
 
 Lambda source: this folder (`handler.py`, `channels.py`). CDK construct: `ops/launcher/cdk/stacks/webhook_ingress.py`.
 
