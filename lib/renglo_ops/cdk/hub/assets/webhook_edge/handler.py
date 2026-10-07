@@ -117,7 +117,7 @@ def _handle_challenge(
 
     expected = _load_config_value(
         portfolio,
-        config_org=challenge_cfg.get("config_org") or "_all",
+        config_org=challenge_cfg.get("config_org") or org,
         config_ring=challenge_cfg.get("config_ring") or "",
         config_key=challenge_cfg.get("config_key") or "",
     )
