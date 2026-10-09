@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "renglo"
-version = "0.1.6rc1"
+version = "0.1.6rc3"
 description = "Renglo environment command"
 requires-python = ">=3.12"
 dependencies = ["pyyaml>=6.0", "renglo-ops"]
