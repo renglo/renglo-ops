@@ -216,10 +216,6 @@ Prints the loaded `renglo.yaml` as JSON.
 
 Reads the live environment and writes the config files needed to run the API and console outside the cloud. See [docs/project-1-greenfield.md](docs/project-1-greenfield.md#6-hand-off-the-local-config).
 
-### `renglo catalog sync [--dry-run]`
-
-Copies packages from `<tenant>-wl/product.yaml` into `renglo.yaml`. A missing white-label pack or catalog leaves the file unchanged. See [docs/project-3-extensions.md](docs/project-3-extensions.md).
-
 ### `renglo config check`
 
 Loads `renglo.yaml` and compares `github.repo` with the BOM checkout's `origin`.

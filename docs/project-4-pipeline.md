@@ -18,7 +18,7 @@ The BOM repository controls both the infrastructure and the code that runs in it
 | `peers_bom/<peer-id>/vX.Y.Z.json` | Pins for one peer, when the environment has peers |
 | `gitconvoy.toml` | Which repos belong to this system's release trains |
 | `.github/actions/setup-renglo-ops/` | Composite action that installs the library pinned by `platform` |
-| `.github/workflows/` | `deploy.yml`, `deploy_console.yml`, `deploy_peers.yml` |
+| `.github/workflows/` | `deploy.yml`, `deploy_console.yml` (add `deploy_peers.yml` only when `placement.peers` is non-empty) |
 
 The public template [renglo/example-bom](https://github.com/renglo/example-bom) ships that layout, including a placeholder `renglo.yaml` at the repo root.
 
@@ -104,7 +104,7 @@ The tag matches the package version. Connecting a repo and its Actions variables
 
 ## 4. Trigger it
 
-The workflows watch the files that describe desired state. `deploy.yml` runs on a push to `main` touching `renglo.yaml`, `bom/**`, or the workflow itself; `deploy_peers.yml` watches `renglo.yaml` and `peers_bom/**`. Each also offers `workflow_dispatch`, with optional tenant and peer inputs for a narrow rerun.
+The workflows watch the files that describe desired state. `deploy.yml` runs on a push to `main` touching `renglo.yaml`, `bom/**`, or the workflow itself; `deploy_console.yml` watches `console_bom/**`. Environments with peers add `deploy_peers.yml` for `peers_bom/**`. Each workflow also offers `workflow_dispatch` for a narrow rerun.
 
 A release train is therefore an ordinary commit on the BOM repository:
 

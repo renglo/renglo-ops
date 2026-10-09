@@ -54,20 +54,6 @@ SECTIONS: list[Section] = [
         ],
     ),
     Section(
-        "catalog",
-        "Bring product.yaml into renglo.yaml",
-        [
-            (
-                "renglo catalog sync --dry-run",
-                "Show what product.yaml would change in renglo.yaml.",
-            ),
-            (
-                "renglo catalog sync",
-                "Copy product.yaml packages from the white-label pack into renglo.yaml.",
-            ),
-        ],
-    ),
-    Section(
         "greenfield",
         "Stand up AWS for one environment",
         [
@@ -82,10 +68,6 @@ SECTIONS: list[Section] = [
             (
                 "renglo config check",
                 "Validate renglo.yaml and compare github.repo with this checkout.",
-            ),
-            (
-                "renglo catalog sync",
-                "Copy product.yaml packages into renglo.yaml before the first deploy.",
             ),
             (
                 "renglo status",
@@ -160,10 +142,6 @@ SECTIONS: list[Section] = [
                 "Print the tenant document, including placement.",
             ),
             (
-                "renglo catalog sync",
-                "Copy product.yaml packages into renglo.yaml before you place them.",
-            ),
-            (
                 "renglo extension tree",
                 "List each extension handle, where it is placed, and its package.",
             ),
@@ -202,10 +180,6 @@ SECTIONS: list[Section] = [
                 "Validate renglo.yaml and compare github.repo with this checkout.",
             ),
             (
-                "renglo catalog sync",
-                "Copy product.yaml packages into renglo.yaml.",
-            ),
-            (
                 "renglo stack deploy",
                 "Synth and deploy the hub stacks.",
             ),
@@ -227,10 +201,6 @@ SECTIONS: list[Section] = [
                 "look",
                 "See what is running",
                 [
-                    (
-                        "renglo catalog sync",
-                        "Copy product.yaml into renglo.yaml before you compare it with AWS.",
-                    ),
                     (
                         "renglo status",
                         "Show the tenant file, accounts, release pointer, and AWS profile.",

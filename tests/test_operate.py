@@ -308,10 +308,9 @@ def test_cli_reads_placement_without_aws(tmp_path: Path, monkeypatch, capsys) ->
 
 def test_help_operate() -> None:
     text = render("operate")
-    assert "renglo catalog sync" in text
     assert "renglo email sender-status" in text
     assert "renglo help operate" in render("")
-    assert "catalog sync" in render("")
+    assert "renglo status --live" in render("")
 
 
 class _Ssm:

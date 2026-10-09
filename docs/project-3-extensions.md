@@ -43,15 +43,7 @@ packages:
     npm: '@acme/billing'
 ```
 
-**BOM-first (recommended when developers clone the BOM repo):** edit `packages` and `placement` directly in `renglo.yaml`. That file is the catalog for local install (`installer.sh`), git-convoy adopt, and deploy. The white-label pack carries branding only (`assets/`, `locales/`, captions).
-
-**Optional `product.yaml` in `<tenant>-wl`:** some teams keep a duplicate handle list in `dev/<tenant>-wl/product.yaml` and merge it into the BOM with:
-
-```bash
-renglo catalog sync
-```
-
-That copy is one-way (add/update handles only; it does not remove packages or set placement). Handles that exist only in `renglo.yaml` (platform libraries, console, white-label) are left alone. If the file is missing, sync is a no-op and `renglo doctor` skips the check.
+Edit `packages` and `placement` in `renglo.yaml`. That file is the catalog for local install (`installer.sh`), git-convoy adopt, and deploy. The white-label pack carries branding only (`assets/`, `locales/`, captions).
 
 Where those packages come from is `registries` — [project-2-registry.md](project-2-registry.md). A package in a foreign CodeArtifact domain needs a `registries` row carrying that domain's `account`, and the domain owner needs this environment's account in `reader_accounts`. Packages on public PyPI or npmjs need no row; the `python-store` and `npm-store` repositories have public upstreams.
 
@@ -99,7 +91,7 @@ placement:
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `extensions` | Yes | Handles this peer runs. A handle may appear on only one peer |
-| `peers_bom` | Yes | BOM version this peer installs. Falls back to the catalog's `handlers_bom` |
+| `peers_bom` | Yes | BOM version this peer installs (`peers_bom/<id>/vX.Y.Z.json`) |
 | `compute` | No | `lambda_only`, `fargate` (default), or `ec2` |
 | `task_size` | No | `small`, `medium` (default), or `large` |
 | `bom_path` | No | Where its BOM lives. Defaults to `peers_bom/<id>` |
