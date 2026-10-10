@@ -117,6 +117,27 @@ jobs:
           print(f"Staged {len(files)} blueprint(s) into {dest}")
           PY
           python -m build package
+          python3 <<'PY'
+          import zipfile
+          from pathlib import Path
+          root = Path(".")
+          names = sorted(p.name for p in (root / "blueprints").glob("*.json")) if (root / "blueprints").is_dir() else []
+          if not names:
+              raise SystemExit(0)
+          wheels = sorted((root / "package" / "dist").glob("*.whl"))
+          if not wheels:
+              raise SystemExit("No wheel built under package/dist")
+          with zipfile.ZipFile(wheels[-1]) as zf:
+              packed = {Path(name).name for name in zf.namelist() if name.endswith(".json")}
+          missing = [name for name in names if name not in packed]
+          if missing:
+              raise SystemExit(
+                  "Wheel is missing blueprint JSON. Declare "
+                  "[tool.setuptools.package-data] <import> = [\"blueprints/*.json\"] "
+                  f"in package/pyproject.toml. Missing: {', '.join(missing)}"
+              )
+          print(f"Wheel contains {len(names)} blueprint(s)")
+          PY
           twine upload --repository codeartifact package/dist/*
 
       - name: Publish to public PyPI
