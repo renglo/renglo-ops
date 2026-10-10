@@ -10,7 +10,10 @@ requires-python = ">=3.12"
 dependencies = ["pyyaml>=6.0"]
 
 [project.optional-dependencies]
-cdk = ["aws-cdk-lib>=2.100.0", "constructs>=10.0.0", "boto3"]
+# Pin to the library that last deployed stanley0731-stack-a. 2.114 rewrites IAM
+# service principals and replaces RuntimeTenantPolicy, which deletes the
+# cross-stack export stanley0731-stack-b still imports.
+cdk = ["aws-cdk-lib==2.273.0", "constructs>=10.0.0,<11.0.0", "boto3"]
 dev = ["pytest>=7.0.0"]
 
 [tool.setuptools.packages.find]
@@ -18,4 +21,4 @@ where = ["."]
 include = ["renglo_ops*"]
 
 [tool.setuptools.package-data]
-renglo_ops = ["image_data/*", "release/*.sh"]
+renglo_ops = ["image_data/*", "release/*.sh", "bom_ci/templates/**"]

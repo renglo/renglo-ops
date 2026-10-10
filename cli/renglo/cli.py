@@ -369,9 +369,10 @@ def _run_cdk(
     env["CDK_OUTDIR"] = str(outdir)
     env.update(extra_env)
     synth = [sys.executable, "-m", module]
-    cdk = shutil.which("cdk")
+    venv_cdk = Path(sys.executable).resolve().parent / "cdk"
+    cdk = str(venv_cdk) if venv_cdk.is_file() else (shutil.which("cdk") or "cdk")
     deploy = [
-        cdk or "cdk",
+        cdk,
         "deploy",
         "--app",
         str(outdir),
@@ -909,6 +910,19 @@ def main(argv: list[str] | None = None) -> int:
     invite.add_argument("--admin-email", default="")
     invite.add_argument("--admin-password", default="")
 
+    bom = sub.add_parser("bom", help="Bill-of-materials repository maintenance")
+    bom_sub = bom.add_subparsers(dest="bom_cmd", required=True)
+    bom_wf = bom_sub.add_parser(
+        "workflows",
+        help="Compare or copy canonical GitHub Actions files from renglo-ops",
+    )
+    bom_wf_sub = bom_wf.add_subparsers(dest="bom_wf_cmd", required=True)
+    bom_wf_check = bom_wf_sub.add_parser("check", help="Report drift vs bundled templates")
+    bom_wf_check.add_argument("--bom", default="", help="BOM repo root (default: resolved tenant)")
+    bom_wf_sync = bom_wf_sub.add_parser("sync", help="Copy canonical workflow files into the BOM repo")
+    bom_wf_sync.add_argument("--bom", default="", help="BOM repo root (default: resolved tenant)")
+    bom_wf_sync.add_argument("--dry-run", action="store_true")
+
     registry = sub.add_parser("registry")
     registry_sub = registry.add_subparsers(dest="registry_cmd")
     registry_deploy = registry_sub.add_parser("deploy")
@@ -953,6 +967,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.cmd == "doctor":
             return _cmd_doctor()
+        if args.cmd == "bom" and args.bom_cmd == "workflows":
+            from renglo.bom_workflows import cmd_check, cmd_sync, resolve_bom_root
+
+            bom_root = resolve_bom_root(Path.cwd(), args.bom)
+            if args.bom_wf_cmd == "check":
+                return cmd_check(bom_root)
+            if args.bom_wf_cmd == "sync":
+                return cmd_sync(bom_root, dry_run=args.dry_run)
         if args.cmd == "status":
             return _cmd_status(args)
         if args.cmd == "state" and args.state_cmd == "show":

@@ -51,7 +51,7 @@ Check the pairing before deploying: every package name under `packages` should r
 
 ## 2. Place them on the hub
 
-`placement.hub` is a list of the package names whose infrastructure belongs to stack B.
+`placement.hub` is a list of extensions whose infrastructure belongs to stack B. Each entry may be a **catalog handle** from `packages:` (e.g. `data`) or the **python distribution name** (e.g. `renglo-data`); tooling resolves both to the same slot.
 
 ```yaml
 placement:

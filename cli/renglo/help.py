@@ -176,6 +176,14 @@ SECTIONS: list[Section] = [
         "Deploy what the BOM repository describes",
         [
             (
+                "renglo bom workflows check",
+                "Compare this BOM repo's GitHub Actions files with the bundle in renglo-ops.",
+            ),
+            (
+                "renglo bom workflows sync",
+                "Copy canonical deploy.yml, deploy_console.yml, deploy_peers.yml, and helpers from renglo-ops.",
+            ),
+            (
                 "renglo config check",
                 "Validate renglo.yaml and compare github.repo with this checkout.",
             ),

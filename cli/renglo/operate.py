@@ -16,6 +16,7 @@ from typing import Any
 from renglo_ops.cdk.hub.stack_names import stack_a_id, stack_b_id
 from renglo_ops.cdk.shared.config_builder import ssm_platform_vars_path
 from renglo_ops.model.errors import RengloOpsError
+from renglo_ops.model.placement import resolve_package_handle
 from renglo_ops.model.registry import Registry, sanitize_domain_name
 from renglo_ops.model.tenant import Tenant
 from renglo_ops.release.peers import peer_stack_name
@@ -64,29 +65,15 @@ def _package_name(spec: Any) -> str:
 
 def extension_rows(tenant: Tenant) -> list[tuple[str, str, str]]:
     """Handle, place (hub or peer:id), package name."""
-    by_name: dict[str, str] = {}
-    for handle, spec in tenant.packages.items():
-        by_name[str(handle)] = str(handle)
-        python_name = ""
-        npm_name = ""
-        if isinstance(spec, dict):
-            python_name = str(spec.get("python") or "").strip()
-            npm_name = str(spec.get("npm") or "").strip()
-        else:
-            python_name = str(spec or "").strip()
-        if python_name:
-            by_name[python_name] = str(handle)
-        if npm_name:
-            by_name[npm_name] = str(handle)
-
     place: dict[str, str] = {}
     for item in tenant.placement_hub:
-        handle = by_name.get(str(item), str(item))
+        handle = resolve_package_handle(tenant.packages, str(item))
         place[handle] = "hub"
     for peer_id, peer in tenant.placement_peers.items():
         extensions = peer.get("extensions") if isinstance(peer, dict) else []
-        for handle in extensions or []:
-            place[str(handle)] = f"peer:{peer_id}"
+        for item in extensions or []:
+            handle = resolve_package_handle(tenant.packages, str(item))
+            place[handle] = f"peer:{peer_id}"
 
     rows: list[tuple[str, str, str]] = []
     for handle in sorted(place):

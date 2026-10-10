@@ -10,9 +10,11 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from renglo_ops.bom_ci.catalog import DriftKind, bom_ci_git_tracking_issues, diff_bom_ci
 from renglo_ops.model.errors import RengloOpsError
 from renglo_ops.model.local import find_local, load_local, workspace_root
 from renglo_ops.model.registry import load_registry
+from renglo_ops.model.placement import placement_hub_missing_packages
 from renglo_ops.model.tenant import Tenant, find_tenant_file, load_tenant
 
 
@@ -445,11 +447,10 @@ def run_doctor(start: Path | None = None) -> list[Check]:
                 )
             )
         else:
-            missing_pkg = [
-                handle
-                for handle in tenant.placement_hub
-                if handle not in tenant.packages
-            ]
+            missing_pkg = placement_hub_missing_packages(
+                tenant.packages,
+                tenant.placement_hub,
+            )
             if missing_pkg:
                 checks.append(
                     Check(
@@ -503,6 +504,53 @@ def run_doctor(start: Path | None = None) -> list[Check]:
                     "OIDC ids, release pins, and BOM manifests present",
                 )
             )
+        if bom_root is not None and bom_root.is_dir():
+            try:
+                drift = diff_bom_ci(bom_root)
+            except OSError as exc:
+                checks.append(
+                    Check(
+                        "Projects",
+                        "BOM CI workflows",
+                        Status.WARN,
+                        str(exc),
+                    )
+                )
+            else:
+                missing = [r.rel_path for r in drift if r.kind is DriftKind.MISSING]
+                changed = [r.rel_path for r in drift if r.kind is DriftKind.CHANGED]
+                git_issues = bom_ci_git_tracking_issues(bom_root)
+                if missing or changed or git_issues:
+                    parts: list[str] = []
+                    if missing:
+                        parts.append(f"{len(missing)} missing")
+                    if changed:
+                        parts.append(f"{len(changed)} out of date")
+                    if git_issues:
+                        parts.append(f"{len(git_issues)} not in git")
+                    sample = ", ".join([*missing, *changed, *git_issues][:4])
+                    if len(missing) + len(changed) + len(git_issues) > 4:
+                        sample += ", …"
+                    detail = f"{'; '.join(parts)} ({sample}); run renglo bom workflows sync"
+                    if git_issues:
+                        detail += "; git add .github/ and commit"
+                    checks.append(
+                        Check(
+                            "Projects",
+                            "BOM CI workflows",
+                            Status.FAIL if git_issues else Status.WARN,
+                            detail,
+                        )
+                    )
+                else:
+                    checks.append(
+                        Check(
+                            "Projects",
+                            "BOM CI workflows",
+                            Status.OK,
+                            "deploy.yml, deploy_console.yml, deploy_peers.yml match renglo-ops",
+                        )
+                    )
 
     if tenant and tenant.email_identity == "domain" and not tenant.email_hosted_zone_id:
         checks.append(

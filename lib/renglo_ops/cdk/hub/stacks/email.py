@@ -16,10 +16,24 @@ DNS / verification modes (resilient for tenants with or without Route53):
 
 from __future__ import annotations
 
-from aws_cdk import CfnOutput
+from aws_cdk import ArnFormat, CfnOutput, Stack
 from aws_cdk import aws_route53 as route53
 from aws_cdk import aws_ses as ses
 from constructs import Construct
+
+
+def _ses_identity_arn(identity: ses.EmailIdentity, identity_name: str) -> str:
+    """ARN for IAM / runtime policy. Newer aws-cdk-lib exposes ``email_identity_arn``; 2.114.x does not."""
+    direct = getattr(identity, "email_identity_arn", None)
+    if direct is not None:
+        return direct
+    stack = Stack.of(identity)
+    return stack.format_arn(
+        service="ses",
+        resource="identity",
+        resource_name=identity_name,
+        arn_format=ArnFormat.SLASH_RESOURCE_NAME,
+    )
 
 
 class EmailStack(Construct):
@@ -115,7 +129,7 @@ class EmailStack(Construct):
         self.email_from = email_from
         self.email_identity = identity
         self.email_identity_name = identity_name
-        self.email_identity_arn = identity.email_identity_arn
+        self.email_identity_arn = _ses_identity_arn(identity, identity_name)
         self.dns_mode = dns_mode
         self.route53_auto = route53_auto
 

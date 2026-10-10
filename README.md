@@ -69,6 +69,14 @@ bash renglo-ops/setup_venv.sh
 
 `setup_venv.sh` is safe to re-run: it reuses the existing venv and refreshes the dependencies and the CDK CLI in place. Your `renglo.yaml` and `.renglo/local.yaml` are untouched, since neither lives in this repository. Re-activate the venv afterwards only if the shell was already using it.
 
+After pulling a newer `renglo-ops`, refresh the BOM repo’s GitHub Actions files from the bundle shipped in the library:
+
+```bash
+renglo bom workflows sync
+```
+
+`renglo doctor` warns when those files drift.
+
 ---
 
 ## Operator projects

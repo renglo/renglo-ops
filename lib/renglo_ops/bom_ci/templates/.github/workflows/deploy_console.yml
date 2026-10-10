@@ -1,0 +1,228 @@
+name: Deploy Console (Amplify)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "renglo.yaml"
+      - "console_bom/**"
+      - ".github/workflows/deploy_console.yml"
+      - ".github/scripts/**"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: console-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare_matrix:
+    name: Prepare tenant matrix
+    runs-on: ubuntu-latest
+    environment: staging
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      build_bom: ${{ steps.set-matrix.outputs.build_bom }}
+      staging_bom: ${{ steps.set-matrix.outputs.staging_bom }}
+      production_bom: ${{ steps.set-matrix.outputs.production_bom }}
+
+    steps:
+      - name: Checkout BOM repo
+        uses: actions/checkout@v4
+
+      - name: Verify BOM CI scripts are in the repo
+        run: |
+          set -euo pipefail
+          for f in .github/scripts/production_pins.py .github/scripts/staging_matrix.py; do
+            if [[ ! -f "$f" ]]; then
+              echo "::error title=Missing BOM CI scripts::$f is not in git. If sync wrote files locally, check .gitignore: use /scripts not scripts, then git add .github/ and commit."
+              exit 1
+            fi
+          done
+
+      - name: Setup renglo-ops
+        uses: ./.github/actions/setup-renglo-ops
+
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Build matrix JSON
+        id: set-matrix
+        run: |
+          set -euo pipefail
+          MATRIX="$(python -m renglo_ops.release render_deploy_matrix renglo.yaml --pipeline console)"
+          STAGING_BOM="$(python .github/scripts/production_pins.py pin renglo.yaml console staging)"
+          PRODUCTION_BOM="$(python .github/scripts/production_pins.py pin renglo.yaml console production)"
+          python -m renglo_ops.release bom_manifest --validate --pipeline console "console_bom/v${STAGING_BOM}.json"
+          if [[ "${PRODUCTION_BOM}" != "${STAGING_BOM}" ]]; then
+            python -m renglo_ops.release bom_manifest --validate --pipeline console "console_bom/v${PRODUCTION_BOM}.json"
+          fi
+          {
+            echo 'matrix<<MATRIX_EOF'
+            echo "$MATRIX"
+            echo 'MATRIX_EOF'
+            echo "build_bom=${STAGING_BOM}"
+            echo "staging_bom=${STAGING_BOM}"
+            echo "production_bom=${PRODUCTION_BOM}"
+          } >> "$GITHUB_OUTPUT"
+
+  deploy_console:
+    name: Deploy console ${{ matrix.tenant }} (${{ matrix.stage }})
+    runs-on: ubuntu-latest
+    needs: prepare_matrix
+    if: ${{ needs.prepare_matrix.outputs.matrix != '{"include":[]}' }}
+    environment: ${{ matrix.stage }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
+    concurrency:
+      group: console-deploy-${{ matrix.tenant }}-${{ matrix.stage }}-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout BOM repo
+        uses: actions/checkout@v4
+
+      - name: Setup renglo-ops
+        uses: ./.github/actions/setup-renglo-ops
+        with:
+          stage: ${{ matrix.stage }}
+
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ matrix.oidc_role_arn }}
+          aws-region: ${{ matrix.aws_region }}
+
+      - name: Checkout BOM repos
+        id: repos
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python -m renglo_ops.release checkout_bom \
+            "console_bom/v${{ matrix.stage == 'production' && needs.prepare_matrix.outputs.production_bom || needs.prepare_matrix.outputs.staging_bom }}.json" \
+            --pipeline console
+
+      - name: Setup Node.js
+        if: ${{ hashFiles('console/package-lock.json') != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+
+      - name: Setup Node.js (no lockfile yet)
+        if: ${{ hashFiles('console/package-lock.json') == '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Login to CodeArtifact
+        if: ${{ steps.repos.outputs.has_npm_pins == 'true' || steps.repos.outputs.has_console_pin == 'true' }}
+        env:
+          CODEARTIFACT_DOMAIN: ${{ vars.CODEARTIFACT_DOMAIN }}
+          CODEARTIFACT_DOMAIN_OWNER: ${{ vars.CODEARTIFACT_DOMAIN_OWNER }}
+        run: |
+          set -euo pipefail
+          REGISTRIES="$(python -m renglo_ops.release render_deploy_matrix renglo.yaml --registries)"
+          python -m renglo_ops.release configure_codeartifact --tool npm --registries-json "${REGISTRIES}"
+          # login points the default registry at CodeArtifact, whose cached index
+          # can omit a version that already exists on npmjs (npm ETARGET).
+          # @apollo and @renglo stay on CodeArtifact via their scoped registries.
+          npm config set registry https://registry.npmjs.org/
+
+      - name: Materialize console host
+        if: ${{ steps.repos.outputs.has_console_pin == 'true' }}
+        run: |
+          python -m renglo_ops.release materialize_console \
+            "console_bom/v${{ matrix.stage == 'production' && needs.prepare_matrix.outputs.production_bom || needs.prepare_matrix.outputs.staging_bom }}.json"
+
+      - name: Fetch console config from SSM
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          python -m renglo_ops.release fetch_deploy_input \
+            --parameter "${{ matrix.ssm_parameter }}" \
+            --region "${{ matrix.aws_region }}" \
+            --output deploy_input.json \
+            --merge-secret OPENAI_API_KEY
+          BASE_URL="$(jq -r '.VARS.BASE_URL // empty' deploy_input.json)"
+          COGNITO_REGION="$(jq -r '.VARS.COGNITO_REGION // empty' deploy_input.json)"
+          COGNITO_USERPOOL_ID="$(jq -r '.VARS.COGNITO_USERPOOL_ID // empty' deploy_input.json)"
+          COGNITO_APP_CLIENT_ID="$(jq -r '.VARS.COGNITO_APP_CLIENT_ID // empty' deploy_input.json)"
+          WEBSOCKET_URL="$(jq -r '.VARS.WEBSOCKET_URL // .VARS.VITE_WEBSOCKET_URL // empty' deploy_input.json)"
+          AMPLIFY_APP_ID="$(jq -r '.VARS.AMPLIFY_APP_ID // empty' deploy_input.json)"
+          if [[ -z "${AMPLIFY_APP_ID}" ]]; then
+            AMPLIFY_APP_ID="$(aws cloudformation describe-stacks \
+              --stack-name "${{ matrix.id }}-stack-a" \
+              --query "Stacks[0].Outputs[?OutputKey=='AmplifyAppId'].OutputValue" \
+              --output text 2>/dev/null || true)"
+            if [[ -z "${AMPLIFY_APP_ID}" || "${AMPLIFY_APP_ID}" == "None" ]]; then
+              AMPLIFY_APP_ID=""
+            else
+              echo "VARS.AMPLIFY_APP_ID missing in SSM; using CloudFormation output AmplifyAppId." >&2
+            fi
+          fi
+          {
+            echo "VITE_API_URL=${BASE_URL}"
+            echo "VITE_COGNITO_REGION=${COGNITO_REGION}"
+            echo "VITE_COGNITO_USERPOOL_ID=${COGNITO_USERPOOL_ID}"
+            echo "VITE_COGNITO_APP_CLIENT_ID=${COGNITO_APP_CLIENT_ID}"
+            echo "VITE_WEBSOCKET_URL=${WEBSOCKET_URL}"
+            echo "VITE_WL_PACKAGE=${{ steps.repos.outputs.vite_wl_package }}"
+            echo "VITE_DEV_MODE=false"
+            echo "AMPLIFY_APP_ID=${AMPLIFY_APP_ID}"
+          } >> "$GITHUB_ENV"
+
+      - name: Build console
+        working-directory: console
+        run: |
+          set -euo pipefail
+          if [[ ! -f package.json ]]; then
+            echo "console/ is missing package.json. Clone renglo/console or pin @renglo/console." >&2
+            exit 1
+          fi
+          if [[ -f package-lock.json ]]; then
+            npm ci
+          else
+            npm install
+          fi
+          if [[ "${{ steps.repos.outputs.has_npm_pins }}" == "true" ]]; then
+            # shellcheck disable=SC2086
+            npm install ${{ steps.repos.outputs.npm_specs }}
+          fi
+          if [[ "${{ steps.repos.outputs.has_npm_local }}" == "true" ]]; then
+            # shellcheck disable=SC2086
+            npm install ${{ steps.repos.outputs.npm_local_specs }}
+          fi
+          npm run build
+
+      - name: Deploy to Amplify
+        run: |
+          set -euo pipefail
+          if [[ -z "${AMPLIFY_APP_ID}" ]]; then
+            echo "Missing AMPLIFY_APP_ID in SSM deploy-input and CloudFormation stack ${{ matrix.id }}-stack-a." >&2
+            exit 1
+          fi
+          chmod +x scripts/deploy_amplify_console.sh
+          scripts/deploy_amplify_console.sh "${AMPLIFY_APP_ID}" "${{ matrix.stage }}" console/dist

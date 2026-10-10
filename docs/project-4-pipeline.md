@@ -17,10 +17,20 @@ The BOM repository controls both the infrastructure and the code that runs in it
 | `console_bom/vX.Y.Z.json` | Console pins |
 | `peers_bom/<peer-id>/vX.Y.Z.json` | Pins for one peer, when the environment has peers |
 | `gitconvoy.toml` | Which repos belong to this system's release trains |
-| `.github/actions/setup-renglo-ops/` | Composite action that installs the library pinned by `platform` |
-| `.github/workflows/` | `deploy.yml`, `deploy_console.yml` (add `deploy_peers.yml` only when `placement.peers` is non-empty) |
+| `.github/actions/setup-renglo-ops/` | Composite action that installs `renglo-ops` from CodeArtifact (respects `staging.platform` on staging jobs) |
+| `.github/scripts/production_pins.py` | Reads `release` vs `staging` pins in `renglo.yaml` for CI |
+| `.github/workflows/` | `deploy.yml`, `deploy_console.yml`, and **`deploy_peers.yml`** (keep all three even when `placement.peers` is empty) |
 
-The public template [renglo/example-bom](https://github.com/renglo/example-bom) ships that layout, including a placeholder `renglo.yaml` at the repo root.
+Canonical copies of those files ship inside **`renglo-ops`** (`renglo_ops.bom_ci.templates`). After upgrading the library, refresh the BOM checkout:
+
+```bash
+renglo bom workflows check
+renglo bom workflows sync
+```
+
+`renglo doctor` warns when the BOM repo drifts from that bundle, and **fails** when canonical files exist on disk but are not tracked by git (a common mistake is a `.gitignore` line `scripts`, which also ignores `.github/scripts/` — use **`/scripts`** for a top-level helper directory only).
+
+After sync, always `git add .github/` and commit so GitHub Actions sees the same files as your laptop.
 
 ---
 
