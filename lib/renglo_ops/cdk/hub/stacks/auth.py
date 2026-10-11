@@ -220,17 +220,20 @@ def _add_pre_signup(scope: Construct, user_pool: cognito.UserPool, *, env_name: 
         runtime=aws_lambda.Runtime.PYTHON_3_12,
         handler="handler.lambda_handler",
         code=aws_lambda.Code.from_asset(str(_ASSET_DIR)),
-        timeout=Duration.seconds(5),
+        timeout=Duration.seconds(10),
         memory_size=128,
     )
     # Do not use user_pool.user_pool_arn here. The pool's Pre Sign-up trigger
     # already references this function, so an ARN that Refs the pool makes
     # CloudFormation reject the stack (pool -> function -> policy -> pool).
     # The event carries the pool id; this account-wide resource only allows
-    # the lookup the handler already scopes to that id.
+    # the lookup and provider link the handler already scopes to that id.
     fn.add_to_role_policy(
         iam.PolicyStatement(
-            actions=["cognito-idp:ListUsers"],
+            actions=[
+                "cognito-idp:ListUsers",
+                "cognito-idp:AdminLinkProviderForUser",
+            ],
             resources=[
                 f"arn:{Aws.PARTITION}:cognito-idp:{Aws.REGION}:{Aws.ACCOUNT_ID}:userpool/*"
             ],
