@@ -30,6 +30,7 @@ class StackA(Stack):
         github_owner_id: str | None = None,
         github_repo_id: str | None = None,
         package_registry: dict | None = None,
+        auth_providers: list | None = None,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -71,10 +72,12 @@ class StackA(Stack):
             enable_staging=enable_staging,
         )
         callback_urls = [console.production_url, console.production_callback_url]
-        logout_urls = [console.production_url]
+        logout_urls = [console.production_url, console.production_login_url]
         if enable_staging and console.staging_url and console.staging_callback_url:
             callback_urls.extend([console.staging_url, console.staging_callback_url])
             logout_urls.append(console.staging_url)
+            if console.staging_login_url:
+                logout_urls.append(console.staging_login_url)
         auth = AuthStack(
             self,
             "Auth",
@@ -83,6 +86,7 @@ class StackA(Stack):
             console_setup_base_url=console.production_url,
             console_callback_urls=callback_urls,
             console_logout_urls=logout_urls,
+            auth_providers=auth_providers,
         )
         email = None
         ses_identity_arn = None

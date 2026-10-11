@@ -217,6 +217,7 @@ def _render_env_development(
             f"VITE_COGNITO_REGION={_py_str(v('COGNITO_REGION'))}",
             f"VITE_COGNITO_USERPOOL_ID={_py_str(v('COGNITO_USERPOOL_ID'))}",
             f"VITE_COGNITO_APP_CLIENT_ID={_py_str(v('COGNITO_APP_CLIENT_ID'))}",
+            f"VITE_COGNITO_DOMAIN={_py_str(v('VITE_COGNITO_DOMAIN') or v('COGNITO_DOMAIN'))}",
             "",
             "VITE_GOOGLE_MAPS_API_KEY=''",
             "",

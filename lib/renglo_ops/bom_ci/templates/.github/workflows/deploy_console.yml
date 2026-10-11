@@ -170,6 +170,7 @@ jobs:
           COGNITO_REGION="$(jq -r '.VARS.COGNITO_REGION // empty' deploy_input.json)"
           COGNITO_USERPOOL_ID="$(jq -r '.VARS.COGNITO_USERPOOL_ID // empty' deploy_input.json)"
           COGNITO_APP_CLIENT_ID="$(jq -r '.VARS.COGNITO_APP_CLIENT_ID // empty' deploy_input.json)"
+          COGNITO_DOMAIN="$(jq -r '.VARS.VITE_COGNITO_DOMAIN // .VARS.COGNITO_DOMAIN // empty' deploy_input.json)"
           WEBSOCKET_URL="$(jq -r '.VARS.WEBSOCKET_URL // .VARS.VITE_WEBSOCKET_URL // empty' deploy_input.json)"
           AMPLIFY_APP_ID="$(jq -r '.VARS.AMPLIFY_APP_ID // empty' deploy_input.json)"
           if [[ -z "${AMPLIFY_APP_ID}" ]]; then
@@ -188,6 +189,7 @@ jobs:
             echo "VITE_COGNITO_REGION=${COGNITO_REGION}"
             echo "VITE_COGNITO_USERPOOL_ID=${COGNITO_USERPOOL_ID}"
             echo "VITE_COGNITO_APP_CLIENT_ID=${COGNITO_APP_CLIENT_ID}"
+            echo "VITE_COGNITO_DOMAIN=${COGNITO_DOMAIN}"
             echo "VITE_WEBSOCKET_URL=${WEBSOCKET_URL}"
             echo "VITE_WL_PACKAGE=${{ steps.repos.outputs.vite_wl_package }}"
             echo "VITE_DEV_MODE=false"
