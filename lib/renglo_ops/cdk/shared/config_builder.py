@@ -158,6 +158,7 @@ def build_launcher_vars(
     ecs_network: dict[str, MapValue],
     extension_vars: dict[str, MapValue],
     from_email: MapValue = "",
+    auth_providers: str = "[]",
 ) -> dict[str, MapValue]:
     backend_fn = stage_app.get("fn_name", f"{env_name}-backend-{stage}")
     rest_url = normalize_url(stage_app.get("rest_url", ""))
@@ -182,6 +183,7 @@ def build_launcher_vars(
         "COGNITO_APP_CLIENT_ID": cognito_app_client_id,
         "COGNITO_DOMAIN": cognito_domain,
         "VITE_COGNITO_DOMAIN": cognito_domain,
+        "AUTH_PROVIDERS": auth_providers,
         "COGNITO_CHECK_TOKEN_EXPIRATION": "True",
         "PREVIEW_LAYER": "2",
         "S3_BUCKET_NAME": data_bucket,

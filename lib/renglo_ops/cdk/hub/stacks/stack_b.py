@@ -57,6 +57,7 @@ class StackB(Stack):
         extension_config: dict[str, Any] | None = None,
         include_extension: bool = False,
         hub_actions_specs: list[ExtensionActionsSpec] | None = None,
+        auth_providers: str = "[]",
         **kwargs,
     ) -> None:
         super().__init__(
@@ -173,6 +174,7 @@ class StackB(Stack):
                 extension=extension,
                 from_email=from_email,
                 webhook=webhook,
+                auth_providers=auth_providers,
             )
 
         BlueprintUploader(self, "BlueprintUploader", env_name=env_name)

@@ -66,11 +66,15 @@ class ConsoleStack(Construct):
         self.default_domain = default_domain
         self.production_url = branch_console_url(default_domain, "production", "/")
         self.production_callback_url = branch_console_url(default_domain, "production", "/callback")
+        self.production_login_url = branch_console_url(default_domain, "production", "/login")
         self.staging_url = (
             branch_console_url(default_domain, "staging", "/") if enable_staging else None
         )
         self.staging_callback_url = (
             branch_console_url(default_domain, "staging", "/callback") if enable_staging else None
+        )
+        self.staging_login_url = (
+            branch_console_url(default_domain, "staging", "/login") if enable_staging else None
         )
 
         CfnOutput(self, "AmplifyAppId", value=app.attr_app_id)
