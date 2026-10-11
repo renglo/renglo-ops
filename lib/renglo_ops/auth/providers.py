@@ -50,6 +50,7 @@ providers:
     secret: reference/renglo/auth/google
     attribute_mapping:
       email: email
+      email_verified: email_verified
       given_name: given_name
       family_name: family_name
       username: sub
@@ -66,6 +67,7 @@ providers:
       issuer: https://example.okta.com
     attribute_mapping:
       email: email
+      email_verified: email_verified
       given_name: given_name
       family_name: family_name
       username: sub
@@ -292,6 +294,7 @@ def _cognito_provider_type(provider: AuthProvider) -> str:
 def _default_attribute_mapping() -> dict[str, str]:
     return {
         "email": "email",
+        "email_verified": "email_verified",
         "given_name": "given_name",
         "family_name": "family_name",
         "username": "sub",

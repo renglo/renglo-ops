@@ -95,11 +95,12 @@ Okta, or any other OIDC issuer:
   secret: example/renglo/auth/okta
   oidc:
     issuer: https://your-tenant.okta.com
-  attribute_mapping:
-    email: email
-    given_name: given_name
-    family_name: family_name
-    username: sub
+    attribute_mapping:
+      email: email
+      email_verified: email_verified
+      given_name: given_name
+      family_name: family_name
+      username: sub
 ```
 
 A second Okta tenant is another entry with its own `id`, `cognito_provider_name`, issuer, and secret.
@@ -127,6 +128,10 @@ Deploy the hub stack after the secret exists. The public list is written to SSM 
 ## Reference login
 
 The Console ships `src/auth/reference-providers.json` with email and password, Google, and Okta. Local development uses that list when the API has no providers, so the login screen shows both external options. Production shows only what the tenant file enables.
+
+## Existing account
+
+Continue with Google signs in to the user who already has that email. Google has already verified the address, so the Pre Sign-up function links that Google identity to the existing user. Cognito stops that first attempt so it does not create a second profile. The Console starts Google sign-in once more, and that attempt opens the existing account. Another provider is linked only when it reports the email as verified. Map `email_verified` on the provider so a later Google sign-in does not clear the existing user's verified email.
 
 ## Invite id
 
