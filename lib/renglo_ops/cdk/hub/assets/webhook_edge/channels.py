@@ -18,8 +18,8 @@ CHANNEL_PROFILES: dict[str, dict[str, Any]] = {
             "challenge_query": "hub.challenge",
             "mode_query": "hub.mode",
             "mode_value": "subscribe",
-            # Dynamo: {org=_all, ring=whatsapp_config} attributes.verify_token
-            "config_org": "_all",
+            # verify_token lives on this path's org, ring whatsapp_config.
+            # Omit config_org so the challenge uses /{portfolio}/{org}/whatsapp.
             "config_ring": "whatsapp_config",
             "config_key": "verify_token",
             # Also accept alternate query key spellings used by some gateways

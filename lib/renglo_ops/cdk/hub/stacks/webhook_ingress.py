@@ -164,6 +164,10 @@ class WebhookIngressStack(Construct):
                     http_parameters=events.CfnRule.HttpParametersProperty(
                         header_parameters={"Content-Type": "application/json"},
                     ),
+                    retry_policy=events.CfnRule.RetryPolicyProperty(
+                        maximum_retry_attempts=2,
+                        maximum_event_age_in_seconds=3600,
+                    ),
                 )
             ],
         )
