@@ -44,7 +44,7 @@ def _wl(root: Path) -> Path:
                 'version = "0.0.1"',
                 "",
                 "[tool.setuptools.package-data]",
-                'wl = ["product.yaml"]',
+                'wl = ["locales/*.json", "assets/*"]',
                 "",
                 "[tool.renglo]",
                 'platform = "0.1.0"',
@@ -59,12 +59,11 @@ def _wl(root: Path) -> Path:
                 "name": "@acme/wl",
                 "version": "0.0.1",
                 "renglo": {"platform": "0.1.0"},
-                "files": ["product.yaml"],
+                "files": ["locales", "assets"],
             }
         ),
         encoding="utf-8",
     )
-    (repo / "product.yaml").write_text("packages:\n  data: {}\n", encoding="utf-8")
     return repo
 
 
@@ -106,8 +105,10 @@ def test_wl_sync_roundtrip(tmp_path: Path) -> None:
     repo = _wl(tmp_path)
     assert any(issue.kind is IssueKind.MISSING for issue in diff_wl(repo))
     sync_wl_repos(tmp_path)
-    remaining = [issue for issue in diff_wl(repo) if issue.kind is not IssueKind.CONFIG]
+    remaining = diff_wl(repo)
     assert remaining == []
+    text = (repo / "wl_build.py").read_text(encoding="utf-8")
+    assert "_DATA_FILES" not in text
     assert sync_wl_repos(tmp_path) == []
 
 

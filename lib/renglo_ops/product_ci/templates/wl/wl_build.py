@@ -6,7 +6,6 @@ import shutil
 from pathlib import Path
 
 _DATA_DIRS = ("locales", "assets")
-_DATA_FILES = ("product.yaml",)
 
 
 def stage_wl_data(root: Path | None = None) -> Path:
@@ -20,10 +19,9 @@ def stage_wl_data(root: Path | None = None) -> Path:
             shutil.rmtree(tgt)
         if src.is_dir():
             shutil.copytree(src, tgt)
-    for name in _DATA_FILES:
-        src = repo / name
-        if src.is_file():
-            shutil.copy2(src, dest / name)
+    stale = dest / "product.yaml"
+    if stale.is_file():
+        stale.unlink()
     return dest
 
 

@@ -101,16 +101,7 @@ python -m renglo_ops.cdk.peer
 
 There is no machine file in CI. Set `RENGLO_TENANT` to the `renglo.yaml` path, `RENGLO_WORKSPACE` to the product checkout, and `PEER_ID` when the job targets one peer.
 
-Product repositories do not install this package to publish. They call the reusable workflow:
-
-```yaml
-jobs:
-  publish:
-    uses: renglo/renglo-ops/.github/workflows/publish-extension.yml@v0.1.0
-    secrets: inherit
-```
-
-The tag matches the package version. Connecting a repo and its Actions variables is in [project-2-registry.md](project-2-registry.md#process-2--giving-a-repository-a-slot).
+Product repositories do not install this package to publish. Each extension runs its own `.github/workflows/publish-extension.yml`, copied from the sync template. Connecting a repo and its Actions variables is in [project-2-registry.md](project-2-registry.md#process-2--giving-a-repository-a-slot).
 
 ## 4. Trigger it
 
