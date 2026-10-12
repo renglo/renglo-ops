@@ -17,6 +17,25 @@ def _emit(stack: Stack, key: str, value: Any) -> None:
     CfnOutput(stack, key, value=out_value)
 
 
+def _keep_cross_stack_export(stack: Stack, logical_id: str, value: Any) -> None:
+    """Re-emit a cross-stack export peers already import.
+
+    Peers now look up these policies by name, so a fresh synth no longer
+    creates the automatic Outputs. CloudFormation still refuses to delete the
+    export while a deployed peer stack imports it. The logical id is the one
+    CDK wrote when the export was first created; it has to stay exactly that
+    or the update deletes the export and rolls back.
+    """
+    out_value = value if isinstance(value, str) else Token.as_string(value)
+    out = CfnOutput(
+        stack,
+        logical_id,
+        value=out_value,
+        export_name=f"{stack.stack_name}:{logical_id}",
+    )
+    out.override_logical_id(logical_id)
+
+
 def export_stack_a_outputs(
     stack: Stack,
     *,
@@ -55,6 +74,11 @@ def export_stack_a_outputs(
     _emit(stack, "BackendEcrRepoUri", runtime.backend_repo.repository_uri)
     _emit(stack, "SeedCodeBuildProjectName", runtime.seed_project.project_name)
     _emit(stack, "TenantPolicyArn", runtime.tt_policy.managed_policy_arn)
+    _keep_cross_stack_export(
+        stack,
+        "ExportsOutputRefRuntimeTenantPolicy6EC9A05F0821994A",
+        runtime.tt_policy.managed_policy_arn,
+    )
     _emit(stack, "TenantRoleArn", runtime.tt_role.role_arn)
     _emit(stack, "CodeDeployAppName", runtime.cd_app.application_name)
     _emit(stack, "OidcProviderArn", runtime.oidc_provider.open_id_connect_provider_arn)
@@ -63,6 +87,11 @@ def export_stack_a_outputs(
         _emit(stack, "OidcDeployRoleArnStaging", runtime.oidc_deploy_role_staging.role_arn)
 
     if ai_storage is not None:
+        _keep_cross_stack_export(
+            stack,
+            "ExportsOutputRefAiStoragePlatformAiPolicy64662F478CBBABC4",
+            ai_storage.ai_policy.managed_policy_arn,
+        )
         for key, value in (getattr(ai_storage, "runtime_outputs", None) or {}).items():
             if value is None or (isinstance(value, str) and value == ""):
                 continue

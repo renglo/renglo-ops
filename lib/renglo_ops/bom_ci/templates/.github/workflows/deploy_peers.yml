@@ -1,0 +1,278 @@
+name: Deploy Peers
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "renglo.yaml"
+      - "peers_bom/**"
+      - ".github/workflows/deploy_peers.yml"
+      - ".github/scripts/**"
+  workflow_dispatch:
+    inputs:
+      tenant:
+        description: "Optional tenant key (omit for all enabled tenants)"
+        required: false
+        default: ""
+      peer:
+        description: "Optional peer id (lab, triage, …)"
+        required: false
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: peers-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare_matrix:
+    name: Prepare peer matrix
+    runs-on: ubuntu-latest
+    environment: staging
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+
+    steps:
+      - name: Checkout BOM repo
+        uses: actions/checkout@v4
+
+      - name: Verify BOM CI scripts are in the repo
+        run: |
+          set -euo pipefail
+          for f in .github/scripts/production_pins.py .github/scripts/staging_matrix.py; do
+            if [[ ! -f "$f" ]]; then
+              echo "::error title=Missing BOM CI scripts::$f is not in git. If sync wrote files locally, check .gitignore: use /scripts not scripts, then git add .github/ and commit."
+              exit 1
+            fi
+          done
+
+      - name: Setup renglo-ops
+        uses: ./.github/actions/setup-renglo-ops
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Build peer matrix JSON
+        id: set-matrix
+        env:
+          TENANT_FILTER: ${{ github.event.inputs.tenant }}
+          PEER_FILTER: ${{ github.event.inputs.peer }}
+        run: |
+          set -euo pipefail
+          FILTER_ARGS=()
+          if [[ -n "${TENANT_FILTER}" || -n "${PEER_FILTER}" ]]; then
+            FILTER_FILE="$(mktemp)"
+            python3 - <<'PY' > "${FILTER_FILE}"
+          import json, os
+          tenant = os.environ.get("TENANT_FILTER", "").strip()
+          peer = os.environ.get("PEER_FILTER", "").strip()
+          row = {}
+          if tenant:
+              row["tenant"] = tenant
+          if peer:
+              row["peer"] = peer
+          print(json.dumps({"include": [row] if row else []}))
+          PY
+            FILTER_ARGS=(--filter-json "${FILTER_FILE}")
+          fi
+          # Project beside the checkout. Passing renglo.yaml makes the installed
+          # entrypoint write a temp catalog under /tmp and then look for
+          # peers_bom next to that file.
+          python3 - <<'PY'
+          from pathlib import Path
+          import yaml
+          from renglo_ops.model.legacy import deploy_targets_dict
+          from renglo_ops.model.tenant import load_tenant
+          src = Path("renglo.yaml").resolve()
+          dest = src.parent / ".deploy-targets.yml"
+          dest.write_text(
+              yaml.safe_dump(deploy_targets_dict(load_tenant(src)), sort_keys=False),
+              encoding="utf-8",
+          )
+          PY
+          MATRIX="$(python -m renglo_ops.release render_deploy_matrix .deploy-targets.yml --pipeline peers "${FILTER_ARGS[@]}")"
+          # Staging peer pins live in renglo.yaml. The installed library still
+          # emits the production peers_bom for every row until this platform
+          # is published, so rewrite staging rows from the file itself.
+          MATRIX="$(printf '%s\n' "$MATRIX" | python .github/scripts/staging_matrix.py rewrite-peers)"
+          python3 -c "
+          import json, sys
+          from pathlib import Path
+          rows = json.loads(sys.argv[1]).get('include') or []
+          for row in rows:
+              path = Path(row['handlers_bom_file'])
+              if not path.is_file():
+                  raise SystemExit(f'missing {path}')
+              print(path)
+          " "$MATRIX" > /tmp/peer-bom-files.txt
+          while IFS= read -r row_file; do
+            python -m renglo_ops.release bom_manifest --validate --pipeline peers "$row_file"
+          done < /tmp/peer-bom-files.txt
+          {
+            echo 'matrix<<MATRIX_EOF'
+            echo "$MATRIX"
+            echo 'MATRIX_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy peer ${{ matrix.peer }} (${{ matrix.id }} ${{ matrix.deploy_stage }})
+    runs-on: ubuntu-latest
+    needs: prepare_matrix
+    if: ${{ needs.prepare_matrix.outputs.matrix != '{"include":[]}' }}
+    environment: ${{ matrix.deploy_stage }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
+    concurrency:
+      group: peer-deploy-${{ matrix.tenant }}-${{ matrix.peer }}-${{ matrix.deploy_stage }}-${{ github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout BOM repo
+        uses: actions/checkout@v4
+
+      - name: Setup renglo-ops
+        uses: ./.github/actions/setup-renglo-ops
+        with:
+          stage: ${{ matrix.deploy_stage }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: pip install build pyyaml boto3
+
+      - name: Checkout peer handlers BOM repos
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python -m renglo_ops.release checkout_bom \
+            "${{ matrix.handlers_bom_file }}" \
+            --pipeline peers
+
+      - name: Configure AWS credentials (peer OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ matrix.oidc_role_arn }}
+          aws-region: ${{ matrix.aws_region }}
+
+      - name: Download pins and prepare peer wheelhouse
+        env:
+          CODEARTIFACT_DOMAIN: ${{ vars.CODEARTIFACT_DOMAIN }}
+          CODEARTIFACT_DOMAIN_OWNER: ${{ vars.CODEARTIFACT_DOMAIN_OWNER }}
+          HANDLERS_BOM_FILE: ${{ matrix.handlers_bom_file }}
+          HANDLERS_COMPUTE: ${{ matrix.handlers_compute }}
+        run: |
+          set -euo pipefail
+          BOM="${HANDLERS_BOM_FILE}"
+          REGISTRIES="$(python -m renglo_ops.release render_deploy_matrix renglo.yaml --registries)"
+          python -m renglo_ops.release configure_codeartifact --tool pip --registries-json "${REGISTRIES}"
+          mkdir -p wheels
+          python -m renglo_ops.release download_python_packages "${BOM}" --dest wheels --sdist --no-deps
+          mapfile -t PIN_LINES < <(BOM_PATH="${BOM}" python - <<'PY'
+          import os
+          from pathlib import Path
+          from renglo_ops.release.bom_manifest import handlers_python_packages, load_bom
+          bom = load_bom(Path(os.environ["BOM_PATH"]))
+          all_pins, install_pins = handlers_python_packages(bom)
+          print(",".join(all_pins))
+          print(",".join(install_pins))
+          PY
+          )
+          ALL_PINS="${PIN_LINES[0]}"
+          HANDLER_PACKAGES="${PIN_LINES[1]}"
+          if [[ -z "${HANDLER_PACKAGES}" ]]; then
+            echo "ERROR: no python pins to install from ${BOM}" >&2
+            exit 1
+          fi
+          echo "prepare packages (wheelhouse): ${ALL_PINS}"
+          echo "build packages (install):      ${HANDLER_PACKAGES}"
+          PREPARE_ARGS=(--from-artifacts wheels --packages "${ALL_PINS}" --out .handlers-build)
+          if [[ "${HANDLERS_COMPUTE}" == "ecs" ]]; then
+            PREPARE_ARGS+=(--with-large-deps)
+          fi
+          python -m renglo_ops.release prepare_handlers_wheelhouse "${PREPARE_ARGS[@]}"
+          echo "HANDLER_PACKAGES=${HANDLER_PACKAGES}" >> "$GITHUB_ENV"
+
+      - name: Build peer zip
+        run: |
+          set -euo pipefail
+          # The published packager installs with --no-index. Pip then builds
+          # sdists such as validate_email in an isolated env that cannot see
+          # the setuptools already installed in the image.
+          python -m pip download \
+            -d .handlers-build/wheelhouse \
+            --only-binary=:all: \
+            --index-url https://pypi.org/simple \
+            'setuptools>=40.8.0' \
+            wheel
+          python -m renglo_ops.release peer_packager build \
+            --env-name "${{ matrix.id }}" \
+            --peer-id "${{ matrix.peer }}" \
+            --wheelhouse .handlers-build/wheelhouse \
+            --assets .handlers-build/handlers-assets \
+            --packages "${HANDLER_PACKAGES}" \
+            --out ".peer-build/${{ matrix.peer }}"
+
+      - name: Fetch peer Lambda env
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          python -m renglo_ops.release fetch_deploy_input \
+            --parameter "${{ matrix.ssm_parameter }}" \
+            --region "${{ matrix.aws_region }}" \
+            --output deploy_input.json \
+            --merge-secret OPENAI_API_KEY \
+            --overlay-env renglo.yaml \
+            --stage "${{ matrix.deploy_stage }}" \
+            --export-lambda-merge lambda_env_merge.json
+
+      - name: Publish peer Lambda
+        run: |
+          python -m renglo_ops.release peer_packager publish \
+            --env-name "${{ matrix.id }}" \
+            --peer-id "${{ matrix.peer }}" \
+            --stage "${{ matrix.deploy_stage }}" \
+            --zip ".peer-build/${{ matrix.peer }}/lambda_deployment.zip" \
+            --region "${{ matrix.aws_region }}" \
+            --env-json lambda_env_merge.json
+
+      - name: Build and push peer ECS image
+        if: ${{ matrix.handlers_compute == 'ecs' }}
+        run: |
+          python -m renglo_ops.release peer_packager build \
+            --env-name "${{ matrix.id }}" \
+            --peer-id "${{ matrix.peer }}" \
+            --wheelhouse .handlers-build/wheelhouse \
+            --assets .handlers-build/handlers-assets \
+            --packages "${HANDLER_PACKAGES}" \
+            --out ".peer-build/${{ matrix.peer }}-ecs" \
+            --large
+          IMAGE="$(cat ".peer-build/${{ matrix.peer }}-ecs/image.txt")"
+          python -m renglo_ops.release peer_packager push \
+            --env-name "${{ matrix.id }}" \
+            --peer-id "${{ matrix.peer }}" \
+            --image "${IMAGE}" \
+            --region "${{ matrix.aws_region }}" \
+            --account "${{ matrix.aws_account }}" \
+            --env-json lambda_env_merge.json
+
+      - name: Write SSM peer routes
+        run: |
+          python -m renglo_ops.release write_peer_routes renglo.yaml \
+            --env-name "${{ matrix.id }}" \
+            --region "${{ matrix.aws_region }}" \
+            --account "${{ matrix.aws_account }}" \
+            --peer-id "${{ matrix.peer }}"

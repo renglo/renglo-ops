@@ -69,6 +69,14 @@ bash renglo-ops/setup_venv.sh
 
 `setup_venv.sh` is safe to re-run: it reuses the existing venv and refreshes the dependencies and the CDK CLI in place. Your `renglo.yaml` and `.renglo/local.yaml` are untouched, since neither lives in this repository. Re-activate the venv afterwards only if the shell was already using it.
 
+After pulling a newer `renglo-ops`, refresh the BOM repo’s GitHub Actions files from the bundle shipped in the library:
+
+```bash
+renglo bom workflows sync
+```
+
+`renglo doctor` warns when those files drift.
+
 ---
 
 ## Operator projects
@@ -215,10 +223,6 @@ Prints the loaded `renglo.yaml` as JSON.
 ### `renglo state local-config [--apply] [--dry-run] [--region REGION]`
 
 Reads the live environment and writes the config files needed to run the API and console outside the cloud. See [docs/project-1-greenfield.md](docs/project-1-greenfield.md#6-hand-off-the-local-config).
-
-### `renglo catalog sync [--dry-run]`
-
-Copies packages from `<tenant>-wl/product.yaml` into `renglo.yaml`. A missing white-label pack or catalog leaves the file unchanged. See [docs/project-3-extensions.md](docs/project-3-extensions.md).
 
 ### `renglo config check`
 

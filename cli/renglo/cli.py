@@ -306,15 +306,6 @@ def _venv_activate() -> str:
         return str(activate)
 
 
-def _cmd_catalog_sync(args: argparse.Namespace) -> int:
-    from renglo_ops.model.product_catalog import sync_tenant_packages
-
-    tenant = _tenant_from_env()
-    result = sync_tenant_packages(tenant, start=Path.cwd(), dry_run=args.dry_run)
-    print(result.format(), end="")
-    return 0
-
-
 def _cmd_check() -> int:
     tenant = _tenant_from_env()
     if tenant.path is None:
@@ -378,9 +369,10 @@ def _run_cdk(
     env["CDK_OUTDIR"] = str(outdir)
     env.update(extra_env)
     synth = [sys.executable, "-m", module]
-    cdk = shutil.which("cdk")
+    venv_cdk = Path(sys.executable).resolve().parent / "cdk"
+    cdk = str(venv_cdk) if venv_cdk.is_file() else (shutil.which("cdk") or "cdk")
     deploy = [
-        cdk or "cdk",
+        cdk,
         "deploy",
         "--app",
         str(outdir),
@@ -843,17 +835,6 @@ def main(argv: list[str] | None = None) -> int:
     _init_flags(config_sub.add_parser("init"))
     config_sub.add_parser("check")
 
-    catalog = sub.add_parser(
-        "catalog",
-        help="Sync product.yaml from the white-label pack into renglo.yaml",
-    )
-    catalog_sub = catalog.add_subparsers(dest="catalog_cmd")
-    catalog_sync = catalog_sub.add_parser(
-        "sync",
-        help="Merge product.yaml packages into renglo.yaml (optional --dry-run)",
-    )
-    catalog_sync.add_argument("--dry-run", action="store_true")
-
     stack = sub.add_parser("stack")
     stack_sub = stack.add_subparsers(dest="stack_cmd")
     deploy = stack_sub.add_parser("deploy")
@@ -892,6 +873,32 @@ def main(argv: list[str] | None = None) -> int:
     extension_sub.add_parser("tree")
     extension_show = extension_sub.add_parser("show")
     extension_show.add_argument("handle")
+    extension_wf = extension_sub.add_parser(
+        "workflows",
+        help="Compare or copy the shared extension publish workflow and report package configs",
+    )
+    extension_wf_sub = extension_wf.add_subparsers(dest="extension_wf_cmd", required=True)
+    extension_wf_sub.add_parser(
+        "check",
+        help="Report drift vs the bundled publish workflow and package configs",
+    )
+    extension_wf_sync = extension_wf_sub.add_parser(
+        "sync",
+        help="Copy the canonical publish workflow into each extension",
+    )
+    extension_wf_sync.add_argument("--dry-run", action="store_true")
+
+    wl = sub.add_parser("wl", help="White-label repository maintenance")
+    wl_sub = wl.add_subparsers(dest="wl_cmd", required=True)
+    wl_sub.add_parser(
+        "check",
+        help="Report drift vs bundled workflows, wl_build.py, and package configs",
+    )
+    wl_sync = wl_sub.add_parser(
+        "sync",
+        help="Copy canonical white-label workflows and wl_build.py",
+    )
+    wl_sync.add_argument("--dry-run", action="store_true")
 
     email = sub.add_parser("email")
     email_sub = email.add_subparsers(dest="email_cmd")
@@ -928,6 +935,19 @@ def main(argv: list[str] | None = None) -> int:
     invite.add_argument("--token", default="")
     invite.add_argument("--admin-email", default="")
     invite.add_argument("--admin-password", default="")
+
+    bom = sub.add_parser("bom", help="Bill-of-materials repository maintenance")
+    bom_sub = bom.add_subparsers(dest="bom_cmd", required=True)
+    bom_wf = bom_sub.add_parser(
+        "workflows",
+        help="Compare or copy canonical GitHub Actions files from renglo-ops",
+    )
+    bom_wf_sub = bom_wf.add_subparsers(dest="bom_wf_cmd", required=True)
+    bom_wf_check = bom_wf_sub.add_parser("check", help="Report drift vs bundled templates")
+    bom_wf_check.add_argument("--bom", default="", help="BOM repo root (default: resolved tenant)")
+    bom_wf_sync = bom_wf_sub.add_parser("sync", help="Copy canonical workflow files into the BOM repo")
+    bom_wf_sync.add_argument("--bom", default="", help="BOM repo root (default: resolved tenant)")
+    bom_wf_sync.add_argument("--dry-run", action="store_true")
 
     registry = sub.add_parser("registry")
     registry_sub = registry.add_subparsers(dest="registry_cmd")
@@ -973,6 +993,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.cmd == "doctor":
             return _cmd_doctor()
+        if args.cmd == "bom" and args.bom_cmd == "workflows":
+            from renglo.bom_workflows import cmd_check, cmd_sync, resolve_bom_root
+
+            bom_root = resolve_bom_root(Path.cwd(), args.bom)
+            if args.bom_wf_cmd == "check":
+                return cmd_check(bom_root)
+            if args.bom_wf_cmd == "sync":
+                return cmd_sync(bom_root, dry_run=args.dry_run)
         if args.cmd == "status":
             return _cmd_status(args)
         if args.cmd == "state" and args.state_cmd == "show":
@@ -987,8 +1015,6 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_config_init(args)
         if args.cmd == "config" and args.config_cmd == "check":
             return _cmd_check()
-        if args.cmd == "catalog" and args.catalog_cmd == "sync":
-            return _cmd_catalog_sync(args)
         if args.cmd == "stack" and args.stack_cmd == "deploy":
             return _cmd_stack(args)
         if args.cmd == "stack" and args.stack_cmd == "status":
@@ -1007,6 +1033,21 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_peer_status(args)
         if args.cmd == "peer" and args.peer_cmd == "destroy":
             return _cmd_peer_destroy(args)
+        if args.cmd == "extension" and args.extension_cmd == "workflows":
+            from renglo.product_workflows import cmd_extension_check, cmd_extension_sync
+
+            if args.extension_wf_cmd == "check":
+                return cmd_extension_check(Path.cwd())
+            if args.extension_wf_cmd == "sync":
+                return cmd_extension_sync(Path.cwd(), dry_run=args.dry_run)
+        if args.cmd == "wl" and args.wl_cmd == "check":
+            from renglo.product_workflows import cmd_wl_check
+
+            return cmd_wl_check(Path.cwd())
+        if args.cmd == "wl" and args.wl_cmd == "sync":
+            from renglo.product_workflows import cmd_wl_sync
+
+            return cmd_wl_sync(Path.cwd(), dry_run=args.dry_run)
         if args.cmd == "extension" and args.extension_cmd == "tree":
             return _cmd_extension_tree()
         if args.cmd == "extension" and args.extension_cmd == "show":

@@ -54,20 +54,6 @@ SECTIONS: list[Section] = [
         ],
     ),
     Section(
-        "catalog",
-        "Bring product.yaml into renglo.yaml",
-        [
-            (
-                "renglo catalog sync --dry-run",
-                "Show what product.yaml would change in renglo.yaml.",
-            ),
-            (
-                "renglo catalog sync",
-                "Copy product.yaml packages from the white-label pack into renglo.yaml.",
-            ),
-        ],
-    ),
-    Section(
         "greenfield",
         "Stand up AWS for one environment",
         [
@@ -82,10 +68,6 @@ SECTIONS: list[Section] = [
             (
                 "renglo config check",
                 "Validate renglo.yaml and compare github.repo with this checkout.",
-            ),
-            (
-                "renglo catalog sync",
-                "Copy product.yaml packages into renglo.yaml before the first deploy.",
             ),
             (
                 "renglo status",
@@ -160,16 +142,20 @@ SECTIONS: list[Section] = [
                 "Print the tenant document, including placement.",
             ),
             (
-                "renglo catalog sync",
-                "Copy product.yaml packages into renglo.yaml before you place them.",
-            ),
-            (
                 "renglo extension tree",
                 "List each extension handle, where it is placed, and its package.",
             ),
             (
                 "renglo extension show HANDLE",
                 "Show one handle: hub or peer, Python package, and npm name.",
+            ),
+            (
+                "renglo extension workflows check",
+                "Compare each extension publish workflow and package config with renglo-ops.",
+            ),
+            (
+                "renglo extension workflows sync",
+                "Copy the canonical publish-extension.yml into each extension. Leaves package configs in place.",
             ),
             (
                 "renglo peer list",
@@ -198,12 +184,32 @@ SECTIONS: list[Section] = [
         "Deploy what the BOM repository describes",
         [
             (
-                "renglo config check",
-                "Validate renglo.yaml and compare github.repo with this checkout.",
+                "renglo bom workflows check",
+                "Compare this BOM repo's GitHub Actions files with the bundle in renglo-ops.",
             ),
             (
-                "renglo catalog sync",
-                "Copy product.yaml packages into renglo.yaml.",
+                "renglo bom workflows sync",
+                "Copy canonical deploy.yml, deploy_console.yml, deploy_peers.yml, and helpers from renglo-ops.",
+            ),
+            (
+                "renglo extension workflows check",
+                "Compare each extension publish workflow and package config with renglo-ops.",
+            ),
+            (
+                "renglo extension workflows sync",
+                "Copy the canonical publish-extension.yml into each extension.",
+            ),
+            (
+                "renglo wl check",
+                "Compare the *-wl repo workflows, wl_build.py, and package configs with renglo-ops.",
+            ),
+            (
+                "renglo wl sync",
+                "Copy canonical white-label workflows and wl_build.py. Leaves package configs in place.",
+            ),
+            (
+                "renglo config check",
+                "Validate renglo.yaml and compare github.repo with this checkout.",
             ),
             (
                 "renglo stack deploy",
@@ -227,10 +233,6 @@ SECTIONS: list[Section] = [
                 "look",
                 "See what is running",
                 [
-                    (
-                        "renglo catalog sync",
-                        "Copy product.yaml into renglo.yaml before you compare it with AWS.",
-                    ),
                     (
                         "renglo status",
                         "Show the tenant file, accounts, release pointer, and AWS profile.",

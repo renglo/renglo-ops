@@ -17,10 +17,20 @@ The BOM repository controls both the infrastructure and the code that runs in it
 | `console_bom/vX.Y.Z.json` | Console pins |
 | `peers_bom/<peer-id>/vX.Y.Z.json` | Pins for one peer, when the environment has peers |
 | `gitconvoy.toml` | Which repos belong to this system's release trains |
-| `.github/actions/setup-renglo-ops/` | Composite action that installs the library pinned by `platform` |
-| `.github/workflows/` | `deploy.yml`, `deploy_console.yml`, `deploy_peers.yml` |
+| `.github/actions/setup-renglo-ops/` | Composite action that installs `renglo-ops` from CodeArtifact (respects `staging.platform` on staging jobs) |
+| `.github/scripts/production_pins.py` | Reads `release` vs `staging` pins in `renglo.yaml` for CI |
+| `.github/workflows/` | `deploy.yml`, `deploy_console.yml`, and **`deploy_peers.yml`** (keep all three even when `placement.peers` is empty) |
 
-The public template [renglo/example-bom](https://github.com/renglo/example-bom) ships that layout, including a placeholder `renglo.yaml` at the repo root.
+Canonical copies of those files ship inside **`renglo-ops`** (`renglo_ops.bom_ci.templates`). After upgrading the library, refresh the BOM checkout:
+
+```bash
+renglo bom workflows check
+renglo bom workflows sync
+```
+
+`renglo doctor` warns when the BOM repo drifts from that bundle, and **fails** when canonical files exist on disk but are not tracked by git (a common mistake is a `.gitignore` line `scripts`, which also ignores `.github/scripts/` — use **`/scripts`** for a top-level helper directory only).
+
+After sync, always `git add .github/` and commit so GitHub Actions sees the same files as your laptop.
 
 ---
 
@@ -91,20 +101,11 @@ python -m renglo_ops.cdk.peer
 
 There is no machine file in CI. Set `RENGLO_TENANT` to the `renglo.yaml` path, `RENGLO_WORKSPACE` to the product checkout, and `PEER_ID` when the job targets one peer.
 
-Product repositories do not install this package to publish. They call the reusable workflow:
-
-```yaml
-jobs:
-  publish:
-    uses: renglo/renglo-ops/.github/workflows/publish-extension.yml@v0.1.0
-    secrets: inherit
-```
-
-The tag matches the package version. Connecting a repo and its Actions variables is in [project-2-registry.md](project-2-registry.md#process-2--giving-a-repository-a-slot).
+Product repositories do not install this package to publish. Each extension runs its own `.github/workflows/publish-extension.yml`, copied from the sync template. Connecting a repo and its Actions variables is in [project-2-registry.md](project-2-registry.md#process-2--giving-a-repository-a-slot).
 
 ## 4. Trigger it
 
-The workflows watch the files that describe desired state. `deploy.yml` runs on a push to `main` touching `renglo.yaml`, `bom/**`, or the workflow itself; `deploy_peers.yml` watches `renglo.yaml` and `peers_bom/**`. Each also offers `workflow_dispatch`, with optional tenant and peer inputs for a narrow rerun.
+The workflows watch the files that describe desired state. `deploy.yml` runs on a push to `main` touching `renglo.yaml`, `bom/**`, or the workflow itself; `deploy_console.yml` watches `console_bom/**`. Environments with peers add `deploy_peers.yml` for `peers_bom/**`. Each workflow also offers `workflow_dispatch` for a narrow rerun.
 
 A release train is therefore an ordinary commit on the BOM repository:
 

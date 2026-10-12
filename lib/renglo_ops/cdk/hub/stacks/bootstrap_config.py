@@ -44,6 +44,7 @@ class BootstrapConfigStack(Construct):
         from_email: str = "",
         webhook: Any | None = None,
         ai_storage: Any | None = None,
+        auth_providers: str = "[]",
     ) -> None:
         super().__init__(scope, construct_id)
 
@@ -87,6 +88,7 @@ class BootstrapConfigStack(Construct):
             "ecs_network": ecs_network,
             "extension_vars": extension_vars,
             "from_email": (from_email or "").strip(),
+            "auth_providers": auth_providers or "[]",
         }
 
         prod_vars = build_launcher_vars(

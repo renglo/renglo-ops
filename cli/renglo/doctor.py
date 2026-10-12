@@ -10,9 +10,16 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from renglo_ops.bom_ci.catalog import (
+    DriftKind,
+    bom_ci_git_tracking_issues,
+    diff_bom_ci,
+    display_path,
+)
 from renglo_ops.model.errors import RengloOpsError
 from renglo_ops.model.local import find_local, load_local, workspace_root
 from renglo_ops.model.registry import load_registry
+from renglo_ops.model.placement import placement_hub_missing_packages
 from renglo_ops.model.tenant import Tenant, find_tenant_file, load_tenant
 
 
@@ -445,11 +452,10 @@ def run_doctor(start: Path | None = None) -> list[Check]:
                 )
             )
         else:
-            missing_pkg = [
-                handle
-                for handle in tenant.placement_hub
-                if handle not in tenant.packages
-            ]
+            missing_pkg = placement_hub_missing_packages(
+                tenant.packages,
+                tenant.placement_hub,
+            )
             if missing_pkg:
                 checks.append(
                     Check(
@@ -469,18 +475,6 @@ def run_doctor(start: Path | None = None) -> list[Check]:
                         f"hub={len(tenant.placement_hub)} peer(s)={len(tenant.placement_peers)}",
                     )
                 )
-        from renglo_ops.model.product_catalog import catalog_doctor
-
-        catalog_status, catalog_detail = catalog_doctor(here, tenant)
-        checks.append(
-            Check(
-                "Projects",
-                "Product catalog",
-                Status(catalog_status),
-                catalog_detail,
-            )
-        )
-
         p4_missing: list[str] = []
         if not tenant.github_owner_id:
             p4_missing.append("github.owner_id")
@@ -515,6 +509,59 @@ def run_doctor(start: Path | None = None) -> list[Check]:
                     "OIDC ids, release pins, and BOM manifests present",
                 )
             )
+        if bom_root is not None and bom_root.is_dir():
+            try:
+                drift = diff_bom_ci(bom_root)
+            except OSError as exc:
+                checks.append(
+                    Check(
+                        "Projects",
+                        "BOM CI workflows",
+                        Status.WARN,
+                        str(exc),
+                    )
+                )
+            else:
+                missing = [r.rel_path for r in drift if r.kind is DriftKind.MISSING]
+                changed = [r.rel_path for r in drift if r.kind is DriftKind.CHANGED]
+                git_issues = bom_ci_git_tracking_issues(bom_root)
+                if missing or changed or git_issues:
+                    parts: list[str] = []
+                    if missing:
+                        parts.append(f"{len(missing)} missing")
+                    if changed:
+                        parts.append(f"{len(changed)} out of date")
+                    if git_issues:
+                        parts.append(f"{len(git_issues)} not in git")
+                    shown = [
+                        display_path(bom_root, item)
+                        for item in [*missing, *changed, *git_issues]
+                    ]
+                    sample = ", ".join(shown[:4])
+                    if len(shown) > 4:
+                        sample += ", …"
+                    detail = f"{'; '.join(parts)} ({sample}); run renglo bom workflows sync"
+                    if git_issues:
+                        detail += f"; in {bom_root.name}, git add .github/ and commit"
+                    checks.append(
+                        Check(
+                            "Projects",
+                            "BOM CI workflows",
+                            Status.FAIL if git_issues else Status.WARN,
+                            detail,
+                        )
+                    )
+                else:
+                    checks.append(
+                        Check(
+                            "Projects",
+                            "BOM CI workflows",
+                            Status.OK,
+                            "deploy.yml, deploy_console.yml, deploy_peers.yml match renglo-ops",
+                        )
+                    )
+
+    checks.extend(_product_repo_checks(ws))
 
     if tenant and tenant.email_identity == "domain" and not tenant.email_hosted_zone_id:
         checks.append(
@@ -526,6 +573,139 @@ def run_doctor(start: Path | None = None) -> list[Check]:
             )
         )
 
+    return checks
+
+
+def _product_repo_checks(ws: Path) -> list[Check]:
+    from renglo_ops.product_ci.catalog import (
+        IssueKind,
+        diff_extensions,
+        diff_wl_repos,
+        find_extension_repos,
+        find_wl_repos,
+        summarize_issues,
+    )
+
+    checks: list[Check] = []
+    if not (ws / "extensions").is_dir():
+        checks.append(
+            Check(
+                "Projects",
+                "Extension publish workflows",
+                Status.SKIP,
+                "no extensions/ directory",
+            )
+        )
+    else:
+        repos = find_extension_repos(ws)
+        issues = diff_extensions(ws)
+        workflow = [item for item in issues if item.kind is not IssueKind.CONFIG]
+        config = [item for item in issues if item.kind is IssueKind.CONFIG]
+        if not repos:
+            checks.append(
+                Check(
+                    "Projects",
+                    "Extension publish workflows",
+                    Status.OK,
+                    "no extension checkouts under extensions/",
+                )
+            )
+        elif not workflow and not config:
+            names = ", ".join(repo.name for repo in repos)
+            checks.append(
+                Check(
+                    "Projects",
+                    "Extension repos",
+                    Status.OK,
+                    f"{names} workflows and package configs match renglo-ops",
+                )
+            )
+        else:
+            if workflow:
+                detail, failed = summarize_issues(
+                    workflow, sync_command="renglo extension workflows sync"
+                )
+                checks.append(
+                    Check(
+                        "Projects",
+                        "Extension publish workflows",
+                        Status.FAIL if failed else Status.WARN,
+                        detail,
+                    )
+                )
+            else:
+                checks.append(
+                    Check(
+                        "Projects",
+                        "Extension publish workflows",
+                        Status.OK,
+                        "match renglo-ops",
+                    )
+                )
+            if config:
+                detail, _failed = summarize_issues(config, sync_command="")
+                checks.append(
+                    Check(
+                        "Projects",
+                        "Extension package configs",
+                        Status.WARN,
+                        detail,
+                    )
+                )
+    wl_repos = find_wl_repos(ws)
+    if not wl_repos:
+        checks.append(
+            Check(
+                "Projects",
+                "White-label repo",
+                Status.WARN,
+                "no *-wl checkout under dev/",
+            )
+        )
+    else:
+        issues = diff_wl_repos(ws)
+        workflow = [item for item in issues if item.kind is not IssueKind.CONFIG]
+        config = [item for item in issues if item.kind is IssueKind.CONFIG]
+        names = ", ".join(repo.name for repo in wl_repos)
+        if not workflow and not config:
+            checks.append(
+                Check(
+                    "Projects",
+                    "White-label repo",
+                    Status.OK,
+                    f"{names} workflows and package configs match renglo-ops",
+                )
+            )
+        else:
+            if workflow:
+                detail, failed = summarize_issues(workflow, sync_command="renglo wl sync")
+                checks.append(
+                    Check(
+                        "Projects",
+                        "White-label workflows",
+                        Status.FAIL if failed else Status.WARN,
+                        detail,
+                    )
+                )
+            else:
+                checks.append(
+                    Check(
+                        "Projects",
+                        "White-label workflows",
+                        Status.OK,
+                        f"{names} match renglo-ops",
+                    )
+                )
+            if config:
+                detail, _failed = summarize_issues(config, sync_command="")
+                checks.append(
+                    Check(
+                        "Projects",
+                        "White-label package configs",
+                        Status.WARN,
+                        detail,
+                    )
+                )
     return checks
 
 

@@ -33,6 +33,7 @@ def main() -> None:
     hub = _prepare_path()
     import aws_cdk as cdk
 
+    from renglo_ops.auth.providers import load_provider_catalog
     from renglo_ops.model.legacy import customer_config_dict
     from renglo_ops.model.tenant import find_tenant_file, load_tenant
 
@@ -74,6 +75,10 @@ def main() -> None:
 
     env_name = cfg["env_name"]
     github_repo = cfg["github_repo"]
+    provider_catalog = load_provider_catalog(
+        tenant_path.parent / "auth" / "providers.yaml",
+        env_name=env_name,
+    )
     outdir = os.environ.get("CDK_OUTDIR", "").strip()
     app = cdk.App(outdir=outdir or None)
     stack_a = StackA(
@@ -88,6 +93,7 @@ def main() -> None:
         github_owner_id=cfg["github_owner_id"] or None,
         github_repo_id=cfg["github_repo_id"] or None,
         package_registry=validate_package_registry(cfg["package_registry"]),
+        auth_providers=provider_catalog.external_enabled(),
     )
     extension_path = os.environ.get("RENGLO_EXTENSION_PATH", "").strip()
     extension_folder = None
@@ -123,6 +129,7 @@ def main() -> None:
         extension_config=extension_config,
         include_extension=extension_folder is not None and extension_manifest is not None,
         hub_actions_specs=hub_actions,
+        auth_providers=provider_catalog.public_json(),
     )
     stack_b.add_dependency(stack_a)
     app.synth()
