@@ -150,6 +150,14 @@ SECTIONS: list[Section] = [
                 "Show one handle: hub or peer, Python package, and npm name.",
             ),
             (
+                "renglo extension workflows check",
+                "Compare each extension publish workflow and package config with renglo-ops.",
+            ),
+            (
+                "renglo extension workflows sync",
+                "Copy the canonical publish-extension.yml into each extension. Leaves package configs in place.",
+            ),
+            (
                 "renglo peer list",
                 "List peers from placement, with compute type and extension handles.",
             ),
@@ -182,6 +190,22 @@ SECTIONS: list[Section] = [
             (
                 "renglo bom workflows sync",
                 "Copy canonical deploy.yml, deploy_console.yml, deploy_peers.yml, and helpers from renglo-ops.",
+            ),
+            (
+                "renglo extension workflows check",
+                "Compare each extension publish workflow and package config with renglo-ops.",
+            ),
+            (
+                "renglo extension workflows sync",
+                "Copy the canonical publish-extension.yml into each extension.",
+            ),
+            (
+                "renglo wl check",
+                "Compare the *-wl repo workflows, wl_build.py, and package configs with renglo-ops.",
+            ),
+            (
+                "renglo wl sync",
+                "Copy canonical white-label workflows and wl_build.py. Leaves package configs in place.",
             ),
             (
                 "renglo config check",

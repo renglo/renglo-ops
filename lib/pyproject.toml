@@ -21,4 +21,4 @@ where = ["."]
 include = ["renglo_ops*"]
 
 [tool.setuptools.package-data]
-renglo_ops = ["image_data/*", "release/*.sh", "bom_ci/templates/**"]
+renglo_ops = ["image_data/*", "release/*.sh", "bom_ci/templates/**", "product_ci/templates/**"]

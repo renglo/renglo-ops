@@ -33,6 +33,11 @@ def templates_root() -> Path:
     return Path(__file__).resolve().parent / "templates"
 
 
+def display_path(repo: Path, rel: str) -> str:
+    """Prefix a checkout-relative path with the repo directory name."""
+    return f"{Path(repo).name}/{rel}"
+
+
 def _normalize(text: str) -> str:
     return text.replace("\r\n", "\n").strip() + "\n"
 
