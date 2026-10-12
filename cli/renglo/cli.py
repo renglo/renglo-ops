@@ -873,6 +873,32 @@ def main(argv: list[str] | None = None) -> int:
     extension_sub.add_parser("tree")
     extension_show = extension_sub.add_parser("show")
     extension_show.add_argument("handle")
+    extension_wf = extension_sub.add_parser(
+        "workflows",
+        help="Compare or copy the shared extension publish workflow and report package configs",
+    )
+    extension_wf_sub = extension_wf.add_subparsers(dest="extension_wf_cmd", required=True)
+    extension_wf_sub.add_parser(
+        "check",
+        help="Report drift vs the bundled publish workflow and package configs",
+    )
+    extension_wf_sync = extension_wf_sub.add_parser(
+        "sync",
+        help="Copy the canonical publish workflow into each extension",
+    )
+    extension_wf_sync.add_argument("--dry-run", action="store_true")
+
+    wl = sub.add_parser("wl", help="White-label repository maintenance")
+    wl_sub = wl.add_subparsers(dest="wl_cmd", required=True)
+    wl_sub.add_parser(
+        "check",
+        help="Report drift vs bundled workflows, wl_build.py, and package configs",
+    )
+    wl_sync = wl_sub.add_parser(
+        "sync",
+        help="Copy canonical white-label workflows and wl_build.py",
+    )
+    wl_sync.add_argument("--dry-run", action="store_true")
 
     email = sub.add_parser("email")
     email_sub = email.add_subparsers(dest="email_cmd")
@@ -1007,6 +1033,21 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_peer_status(args)
         if args.cmd == "peer" and args.peer_cmd == "destroy":
             return _cmd_peer_destroy(args)
+        if args.cmd == "extension" and args.extension_cmd == "workflows":
+            from renglo.product_workflows import cmd_extension_check, cmd_extension_sync
+
+            if args.extension_wf_cmd == "check":
+                return cmd_extension_check(Path.cwd())
+            if args.extension_wf_cmd == "sync":
+                return cmd_extension_sync(Path.cwd(), dry_run=args.dry_run)
+        if args.cmd == "wl" and args.wl_cmd == "check":
+            from renglo.product_workflows import cmd_wl_check
+
+            return cmd_wl_check(Path.cwd())
+        if args.cmd == "wl" and args.wl_cmd == "sync":
+            from renglo.product_workflows import cmd_wl_sync
+
+            return cmd_wl_sync(Path.cwd(), dry_run=args.dry_run)
         if args.cmd == "extension" and args.extension_cmd == "tree":
             return _cmd_extension_tree()
         if args.cmd == "extension" and args.extension_cmd == "show":

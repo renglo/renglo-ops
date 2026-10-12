@@ -8,6 +8,7 @@ from renglo_ops.bom_ci.catalog import (
     DriftKind,
     bom_ci_git_tracking_issues,
     diff_bom_ci,
+    display_path,
     sync_bom_ci,
 )
 from renglo_ops.model.local import find_local, load_local
@@ -41,14 +42,17 @@ def cmd_check(bom_root: Path) -> int:
         return 0
     print(f"BOM CI drift under {bom_root}:")
     for path in missing:
-        print(f"  missing  {path}")
+        print(f"  missing  {display_path(bom_root, path)}")
     for path in changed:
-        print(f"  changed  {path}")
+        print(f"  changed  {display_path(bom_root, path)}")
     for detail in git_issues:
-        print(f"  git      {detail}")
+        print(f"  git      {display_path(bom_root, detail)}")
     print("Run: renglo bom workflows sync")
     if git_issues:
-        print("Then: git add .github/ && git commit (CI only sees tracked files)")
+        print(
+            f"Then: in {bom_root.name}, git add .github/ and commit "
+            "(CI only sees tracked files)"
+        )
     return 1
 
 
@@ -59,8 +63,11 @@ def cmd_sync(bom_root: Path, *, dry_run: bool) -> int:
         return 0
     label = "Would write" if dry_run else "Wrote"
     for rel in written:
-        print(f"{label} {rel}")
+        print(f"{label} {display_path(bom_root, rel)}")
     if not dry_run:
-        for detail in bom_ci_git_tracking_issues(bom_root):
-            print(f"Note: {detail}")
+        git_issues = bom_ci_git_tracking_issues(bom_root)
+        for detail in git_issues:
+            print(f"Note: {display_path(bom_root, detail)}")
+        if git_issues:
+            print(f"Then: in {bom_root.name}, git add .github/ and commit")
     return 0
