@@ -276,34 +276,12 @@ def _extension_config_issues(repo: Path) -> list[Issue]:
 
 
 def _wl_config_issues(repo: Path) -> list[Issue]:
+    """Package name, version, and platform. Membership lives in the BOM ``renglo.yaml``."""
     issues: list[Issue] = []
+    issues.extend(_pyproject_issues(repo, repo / "pyproject.toml", "pyproject.toml"))
     issues.extend(
-        _pyproject_issues(
-            repo,
-            repo / "pyproject.toml",
-            "pyproject.toml",
-            require_fragment="product.yaml",
-        )
+        _package_json_issues(repo, repo / "package.json", "package.json", require_files=())
     )
-    issues.extend(
-        _package_json_issues(
-            repo,
-            repo / "package.json",
-            "package.json",
-            require_files=("product.yaml",),
-        )
-    )
-    product = repo / "product.yaml"
-    if not product.is_file():
-        issues.append(Issue(repo, "product.yaml", IssueKind.CONFIG, "missing"))
-    else:
-        try:
-            text = product.read_text(encoding="utf-8")
-        except OSError as exc:
-            issues.append(Issue(repo, "product.yaml", IssueKind.CONFIG, str(exc)))
-        else:
-            if "packages:" not in text:
-                issues.append(Issue(repo, "product.yaml", IssueKind.CONFIG, "missing packages:"))
     return issues
 
 
@@ -313,7 +291,6 @@ def _pyproject_issues(
     rel: str,
     *,
     require_blueprints: bool = False,
-    require_fragment: str = "",
 ) -> list[Issue]:
     if not path.is_file():
         return [Issue(repo, rel, IssueKind.CONFIG, "missing")]
@@ -336,8 +313,6 @@ def _pyproject_issues(
     patterns = _package_data_patterns(tool)
     if require_blueprints and not any("blueprints/*.json" in pattern for pattern in patterns):
         issues.append(Issue(repo, rel, IssueKind.CONFIG, "does not ship blueprints/*.json"))
-    if require_fragment and not any(require_fragment in pattern for pattern in patterns):
-        issues.append(Issue(repo, rel, IssueKind.CONFIG, f"does not ship {require_fragment}"))
     return issues
 
 
