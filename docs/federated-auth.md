@@ -25,7 +25,7 @@ In [Google Cloud Console](https://console.cloud.google.com/):
 4. Application type: **Web application**.
 5. Authorized redirect URI (this is Cognito, not the Console):
 
-   `https://stanley0731.auth.us-east-1.amazoncognito.com/oauth2/idpresponse`
+   `https://{env}.auth.{region}.amazoncognito.com/oauth2/idpresponse`
 
 6. Copy the **Client ID** and **Client secret**.
 
@@ -35,7 +35,7 @@ Use the AWS account in `ops/skbrk-bom/renglo.yaml` (`339713094352`, `us-east-1`)
 
 ```bash
 aws secretsmanager create-secret \
-  --name stanley0731/renglo/auth/google \
+  --name "PASTE_ENV">/renglo/auth/google \
   --secret-string '{"client_id":"PASTE_CLIENT_ID","client_secret":"PASTE_CLIENT_SECRET"}'
 ```
 
@@ -55,7 +55,7 @@ That keeps the existing user pool and registers Google on it. It also allows the
 
 `VITE_COGNITO_DOMAIN` is read when Vite starts. Restart `./renglo --here`, then open `http://127.0.0.1:5174/login` and choose **Continue with Google**.
 
-**Continue with Okta** is the other reference button. It fails until an Okta issuer and a secret `stanley0731/renglo/auth/okta` exist and that entry in `auth/providers.yaml` is `enabled: true`. Leave it disabled until then.
+**Continue with Okta** is the other reference button. It fails until an Okta issuer and a secret `{ENV}/renglo/auth/okta` exist and that entry in `auth/providers.yaml` is `enabled: true`. Leave it disabled until then.
 
 Email and password sign-in does not use this setup.
 
