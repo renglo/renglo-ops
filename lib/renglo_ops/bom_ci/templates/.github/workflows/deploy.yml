@@ -1,4 +1,5 @@
 name: Deploy Backend (Staging -> Production tenants)
+run-name: ${{ github.event.head_commit.message || format('Manual: {0}', github.ref_name) }}
 
 on:
   push:
