@@ -271,6 +271,19 @@ def main() -> int:
             args.region,
             dry_run=args.dry_run,
         )
+    # Hubs that predate the per-extension parameters still read this one name.
+    # Keep it stage-aware when it fits. A hub with STAGE=staging then calls
+    # the staging Lambda instead of the deleted unstaged function.
+    combined = stage_route_document(per_stage)
+    combined_path = ssm_peer_routes_path(args.env_name)
+    combined_body = _ssm_body(combined)
+    if len(combined_body) <= 4096:
+        _put_ssm(combined_path, combined, args.region, dry_run=args.dry_run)
+    else:
+        print(
+            f"skip {combined_path} ({len(combined_body)} characters); "
+            "per-extension parameters hold the routes"
+        )
     for stage in ("staging", "production"):
         _strip_legacy_peer_map_from_platform_vars(
             f"/{args.env_name}/bootstrap/platform-vars/{stage}",
