@@ -22,6 +22,7 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 from peers import load_peers, peer_stack_name  # noqa: E402
+from renglo_ops.cdk.shared.config_builder import ssm_peer_routes_path  # noqa: E402
 
 
 def _output(outputs: dict[str, str], logical: str) -> str:
@@ -78,6 +79,24 @@ def stage_route_document(per_stage: dict[str, dict[str, Any]]) -> dict[str, Any]
     return {"stages": stages, "routes": routes}
 
 
+def extension_route_documents(per_stage: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """One document per handle. Each parameter stays well under the 4 KB cap."""
+    handles: list[str] = []
+    for routes in per_stage.values():
+        for handle in routes:
+            if handle not in handles:
+                handles.append(handle)
+    documents: dict[str, dict[str, Any]] = {}
+    for handle in handles:
+        sliced = {
+            stage: {handle: routes[handle]}
+            for stage, routes in per_stage.items()
+            if handle in routes
+        }
+        documents[handle] = stage_route_document(sliced)
+    return documents
+
+
 def _route_from_outputs(
     extensions: list[str],
     outputs: dict[str, str],
@@ -111,8 +130,17 @@ def _route_from_outputs(
     return {ext: dict(route) for ext in extensions}
 
 
+def _ssm_body(payload: dict[str, Any]) -> str:
+    """Compact JSON. Standard SSM parameters reject values over 4096 characters."""
+    return json.dumps(payload, separators=(",", ":"), sort_keys=True)
+
+
 def _put_ssm(name: str, payload: dict[str, Any], region: str, *, dry_run: bool) -> None:
-    body = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    body = _ssm_body(payload)
+    if len(body) > 4096:
+        raise RuntimeError(
+            f"{name} is {len(body)} characters; SSM standard parameters allow 4096"
+        )
     if dry_run:
         print(f"[dry-run] {name} ({len(body)} bytes)")
         return
@@ -228,16 +256,21 @@ def main() -> int:
                 file=sys.stderr,
             )
 
-    document = stage_route_document(per_stage)
-    if not document["routes"]:
+    documents = extension_route_documents(per_stage)
+    if not documents:
         print(
             "ERROR: no peer routes resolved; not writing empty SSM map",
             file=sys.stderr,
         )
         return 1
 
-    routes_path = f"/{args.env_name}/bootstrap/peer-routes"
-    _put_ssm(routes_path, document, args.region, dry_run=args.dry_run)
+    for handle, document in documents.items():
+        _put_ssm(
+            ssm_peer_routes_path(args.env_name, handle),
+            document,
+            args.region,
+            dry_run=args.dry_run,
+        )
     for stage in ("staging", "production"):
         _strip_legacy_peer_map_from_platform_vars(
             f"/{args.env_name}/bootstrap/platform-vars/{stage}",

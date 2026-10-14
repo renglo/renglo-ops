@@ -26,8 +26,13 @@ def ssm_platform_vars_path(env_name: str, stage: str) -> str:
     return f"/{env_name}/bootstrap/platform-vars/{stage}"
 
 
-def ssm_peer_routes_path(env_name: str) -> str:
-    return f"/{env_name}/bootstrap/peer-routes"
+def ssm_peer_routes_path(env_name: str, extension: str = "") -> str:
+    """One parameter per extension. The bare path is the legacy combined map."""
+    base = f"/{env_name}/bootstrap/peer-routes"
+    handle = (extension or "").strip().lower()
+    if not handle:
+        return base
+    return f"{base}/{handle}"
 
 
 def ssm_deploy_input_path(env_name: str) -> str:

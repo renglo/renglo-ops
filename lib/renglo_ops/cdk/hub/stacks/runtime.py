@@ -273,6 +273,7 @@ def _tt_policy_document(
                 actions=["ssm:GetParameter", "ssm:GetParameters"],
                 resources=[
                     f"arn:aws:ssm:{region}:{account}:parameter/{env_name}/bootstrap/peer-routes",
+                    f"arn:aws:ssm:{region}:{account}:parameter/{env_name}/bootstrap/peer-routes/*",
                 ],
             ),
             iam.PolicyStatement(

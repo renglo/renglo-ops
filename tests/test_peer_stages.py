@@ -13,7 +13,11 @@ sys.path.insert(0, str(RELEASE))
 
 from peers import handlers_lambda_function_name  # noqa: E402
 from render_deploy_matrix import _peer_rows  # noqa: E402
-from write_peer_routes import stage_route_document  # noqa: E402
+from write_peer_routes import (  # noqa: E402
+    _ssm_body,
+    extension_route_documents,
+    stage_route_document,
+)
 
 
 class PeerStageTests(unittest.TestCase):
@@ -46,6 +50,58 @@ class PeerStageTests(unittest.TestCase):
             document["routes"]["tourbotlink"]["lambda_function_name"],
             "apollo1-peer-tourbot-production",
         )
+
+    def test_lab_route_document_fits_standard_ssm(self) -> None:
+        route = {
+            "lambda_function_name": "arbitium0813-peer-lab-staging",
+            "lambda_arn": "arn:aws:lambda:us-east-1:982081058012:function:arbitium0813-peer-lab-staging",
+            "ecs_cluster": "arbitium0813-peer-lab",
+            "ecs_task_definition": "arbitium0813-peer-lab-ecs",
+            "ecs_results_bucket": "arbitium0813-peer-lab-ecs-982081058012",
+            "region": "us-east-1",
+            "subnets": [
+                "subnet-0473ee081fbffa66b",
+                "subnet-0d8a21bff1a8dd367",
+                "subnet-064c2a99b5ab4dec0",
+                "subnet-0814beb7b52df72e8",
+                "subnet-0d95f814b0f9aca54",
+                "subnet-018a70eab61e09995",
+            ],
+            "security_groups": ["sg-0525c5c8df9f16219"],
+            "launch_type": "fargate",
+            "network_mode": "awsvpc",
+        }
+        production = dict(route)
+        production["lambda_function_name"] = "arbitium0813-peer-lab-production"
+        production["lambda_arn"] = (
+            "arn:aws:lambda:us-east-1:982081058012:function:arbitium0813-peer-lab-production"
+        )
+        documents = extension_route_documents(
+            {
+                "staging": {
+                    "arbitiumlab": dict(route),
+                    "arbitiumtriage": dict(route),
+                    "arbitiumextra": dict(route),
+                },
+                "production": {
+                    "arbitiumlab": dict(production),
+                    "arbitiumtriage": dict(production),
+                    "arbitiumextra": dict(production),
+                },
+            }
+        )
+        self.assertEqual(
+            set(documents),
+            {"arbitiumlab", "arbitiumtriage", "arbitiumextra"},
+        )
+        lab = documents["arbitiumlab"]
+        self.assertEqual(
+            lab["stages"]["staging"]["arbitiumlab"]["lambda_function_name"],
+            "arbitium0813-peer-lab-staging",
+        )
+        self.assertNotIn("arbitiumtriage", lab["stages"]["staging"])
+        for document in documents.values():
+            self.assertLessEqual(len(_ssm_body(document)), 4096)
 
     def test_peer_matrix_follows_enabled_accounts(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

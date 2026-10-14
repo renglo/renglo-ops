@@ -414,6 +414,7 @@ def _handlers_oidc_policy(
                 actions=["ssm:GetParameter", "ssm:GetParameters", "ssm:PutParameter"],
                 resources=[
                     f"arn:aws:ssm:{region}:{account}:parameter/{env_name}/bootstrap/peer-routes",
+                    f"arn:aws:ssm:{region}:{account}:parameter/{env_name}/bootstrap/peer-routes/*",
                     f"arn:aws:ssm:{region}:{account}:parameter/{env_name}/bootstrap/platform-vars/staging",
                     f"arn:aws:ssm:{region}:{account}:parameter/{env_name}/bootstrap/platform-vars/production",
                 ],
