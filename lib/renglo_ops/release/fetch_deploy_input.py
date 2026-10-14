@@ -98,8 +98,12 @@ def _load_platform_env_overlay(path: Path) -> dict[str, str]:
         data = json.loads(text)
     if not isinstance(data, dict):
         raise ValueError(f"{path}: overlay must be a mapping")
-    env = data.get("env")
-    if isinstance(env, dict) and "name" in data and "github" in data:
+    # renglo.yaml is the tenant document. Runtime overrides belong under env.
+    # Without that block, packages/placement/registries must not become Lambda vars.
+    if "name" in data and "github" in data:
+        env = data.get("env")
+        if not isinstance(env, dict):
+            return {}
         data = env
     out: dict[str, str] = {}
     for key, value in data.items():

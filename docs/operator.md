@@ -78,7 +78,7 @@ Same synth as today. `--stack` limits `cdk deploy` to `{env}-stack-a`, `{env}-st
 
 Use `--stack b` after a hub placement edit. Use `--stack a` for a core change (auth, mail, storage, OIDC). A peer deploy does not update stack A.
 
-`--dry-run` prints the synth and the deploy and does not call AWS.
+`--dry-run` prints the `cdk deploy` and does not call AWS. The CDK CLI runs the app so `cdk.context.json` is loaded before deploy.
 
 ### `renglo account bootstrap [--dry-run]`
 

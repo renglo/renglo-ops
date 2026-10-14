@@ -236,9 +236,12 @@ accounts:
     monkeypatch.chdir(tmp_path)
     assert main(["stack", "deploy", "--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "renglo_ops.cdk.hub" in out
     assert "cdk deploy" in out
-    assert "--app" in out
+    assert "--output" in out
+    assert ".renglo/cdk.out" in out
+    app = out.split("--app", 1)[1].split("--output", 1)[0]
+    assert "-m renglo_ops.cdk.hub" in app
+    assert "cdk.out" not in app
 
 
 def test_config_init_writes_both_files(tmp_path: Path, monkeypatch, capsys) -> None:

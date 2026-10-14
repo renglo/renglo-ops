@@ -70,12 +70,7 @@ renglo stack deploy --dry-run
 renglo stack deploy
 ```
 
-`--dry-run` prints the two commands and calls nothing:
-
-1. `python -m renglo_ops.cdk.hub` synths stack A and stack B from `renglo.yaml`.
-2. `cdk deploy --app <workspace>/.renglo/cdk.out --all` applies them.
-
-Templates land in `<workspace>/.renglo/cdk.out`, which is gitignored. Without `cdk` on `PATH` the synth still finishes and the command stops before AWS, which is a useful way to inspect templates.
+`--dry-run` prints the `cdk deploy` and calls nothing. A real deploy runs `cdk deploy --app "python -m renglo_ops.cdk.hub"`. The CDK CLI reads `cdk.context.json` from the workspace, looks up any key that is still missing, and then applies the stacks. Templates land in `<workspace>/.renglo/cdk.out`, which is gitignored. `cdk` must be on `PATH`.
 
 `--profile NAME` overrides the profile in `.renglo/local.yaml` for one run.
 

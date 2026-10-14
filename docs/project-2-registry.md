@@ -153,7 +153,7 @@ renglo registry deploy --registry registry.yaml
 
 From anywhere else, pass a relative or absolute path instead of bare `registry.yaml`.
 
-`--dry-run` prints the synth and the `cdk deploy` and does not call AWS. A real deploy writes the assembly to `<workspace>/.renglo/cdk.out` and then runs `cdk deploy --all`, so `cdk` must be on `PATH`.
+`--dry-run` prints the `cdk deploy` and does not call AWS. A real deploy runs `cdk deploy --app "python -m renglo_ops.cdk.registry"`, which reads `cdk.context.json` and writes the assembly to `<workspace>/.renglo/cdk.out`. `cdk` must be on `PATH`.
 
 `renglo registry deploy` takes its account from `AWS_PROFILE` or `--profile`. When the registry account differs from the hub account, pass `--profile` on this command. You can also store the path so later commands omit `--registry`:
 

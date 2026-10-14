@@ -236,7 +236,6 @@ jobs:
             --region "${{ matrix.aws_region }}" \
             --output deploy_input.json \
             --merge-secret OPENAI_API_KEY \
-            --overlay-env renglo.yaml \
             --stage "${{ matrix.deploy_stage }}" \
             --export-lambda-merge lambda_env_merge.json
 

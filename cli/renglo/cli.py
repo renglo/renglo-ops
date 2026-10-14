@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -366,15 +367,19 @@ def _run_cdk(
     if profile:
         env["AWS_PROFILE"] = profile
     env.setdefault("RENGLO_WORKSPACE", str(workspace))
-    env["CDK_OUTDIR"] = str(outdir)
     env.update(extra_env)
-    synth = [sys.executable, "-m", module]
+    # The CDK CLI must run the app. It reads cdk.context.json, injects it as
+    # CDK_CONTEXT_JSON, and looks up anything still missing. Deploying a
+    # prebuilt cloud assembly skips that and synthesizes dummy ids such as
+    # vpc-12345.
     venv_cdk = Path(sys.executable).resolve().parent / "cdk"
     cdk = str(venv_cdk) if venv_cdk.is_file() else (shutil.which("cdk") or "cdk")
     deploy = [
         cdk,
         "deploy",
         "--app",
+        f"{shlex.quote(sys.executable)} -m {module}",
+        "--output",
         str(outdir),
         "--require-approval",
         "broadening",
@@ -383,17 +388,13 @@ def _run_cdk(
         deploy.extend(stacks)
     else:
         deploy.append("--all")
-    print(" ".join(synth))
     print(" ".join(deploy))
     if dry_run:
         return 0
-    outdir.mkdir(parents=True, exist_ok=True)
-    synthesized = subprocess.run(synth, env=env, cwd=workspace)
-    if synthesized.returncode != 0:
-        return synthesized.returncode
     if not cdk:
-        print(f"cdk CLI is not on PATH; templates are in {outdir}", file=sys.stderr)
+        print("cdk CLI is not on PATH", file=sys.stderr)
         return 2
+    outdir.mkdir(parents=True, exist_ok=True)
     return subprocess.run(deploy, env=env, cwd=workspace).returncode
 
 

@@ -103,7 +103,12 @@ def filter_lambda_env(
     *,
     log: bool = False,
 ) -> dict[str, str]:
-    """Drop reserved, CI-only, console-only, and invalid Lambda keys."""
+    """Drop reserved, CI-only, console-only, lowercase, and invalid Lambda keys.
+
+    The API loads an uppercase allow-list and ignores every other env var.
+    Tenant-file keys such as packages and placement are lowercase, so they
+    never reach the function.
+    """
     out: dict[str, str] = {}
     skipped: list[str] = []
     for raw_key, raw_val in source.items():
@@ -112,7 +117,8 @@ def filter_lambda_env(
             continue
         value = str(raw_val)
         if (
-            is_reserved_env_key(key)
+            not key.isupper()
+            or is_reserved_env_key(key)
             or is_console_only_env_key(key)
             or key in HANDLERS_ONLY_ENV_KEYS
             or key in OVERFLOW_IDENTITY_ENV_KEYS
