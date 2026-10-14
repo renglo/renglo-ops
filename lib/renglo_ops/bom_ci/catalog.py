@@ -14,6 +14,7 @@ CANONICAL_REL_PATHS: tuple[str, ...] = (
     ".github/actions/setup-renglo-ops/action.yml",
     ".github/scripts/production_pins.py",
     ".github/scripts/staging_matrix.py",
+    ".github/scripts/apply_cors_allowed.py",
 )
 
 

@@ -10,6 +10,7 @@ on:
       - "bom/**"
       - ".github/workflows/deploy.yml"
       - ".github/scripts/**"
+      - "cors/**"
   workflow_dispatch:
     inputs:
       skip_production:
@@ -259,6 +260,11 @@ jobs:
             --merge-secret OPENAI_API_KEY \
             --stage "${{ matrix.stage }}" \
             --export-lambda-merge lambda_env_merge.json
+          if [[ -f cors/allowed.yml ]]; then
+            python .github/scripts/apply_cors_allowed.py \
+              --allowed cors/allowed.yml \
+              --merge lambda_env_merge.json
+          fi
 
       - name: Deploy via CodeDeploy
         run: |
@@ -535,6 +541,11 @@ jobs:
             --merge-secret OPENAI_API_KEY \
             --stage "${{ matrix.stage }}" \
             --export-lambda-merge lambda_env_merge.json
+          if [[ -f cors/allowed.yml ]]; then
+            python .github/scripts/apply_cors_allowed.py \
+              --allowed cors/allowed.yml \
+              --merge lambda_env_merge.json
+          fi
 
       - name: Deploy via CodeDeploy
         run: |

@@ -9,6 +9,20 @@ if str(_RELEASE) not in sys.path:
 
 from fetch_deploy_input import _load_platform_env_overlay  # noqa: E402
 
+_CORS = (
+    Path(__file__).resolve().parents[1]
+    / "lib"
+    / "renglo_ops"
+    / "bom_ci"
+    / "templates"
+    / ".github"
+    / "scripts"
+)
+if str(_CORS) not in sys.path:
+    sys.path.insert(0, str(_CORS))
+
+from apply_cors_allowed import load_cors_allowed  # noqa: E402
+
 
 def test_filter_drops_tenant_file_keys() -> None:
     source = {
@@ -55,6 +69,36 @@ def test_tenant_file_overlay_uses_env_block(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert _load_platform_env_overlay(path) == {"OPENAI_API_KEY": "sk-test"}
+
+
+def test_cors_allowed_list(tmp_path: Path) -> None:
+    path = tmp_path / "allowed.yml"
+    path.write_text(
+        "origins:\n"
+        "  - https://lab.arbitium.com/\n"
+        "  - https://staging.example.amplifyapp.com\n",
+        encoding="utf-8",
+    )
+    assert load_cors_allowed(path) == (
+        '["https://lab.arbitium.com", "https://staging.example.amplifyapp.com"]'
+    )
+
+
+def test_cors_allowed_star_opens_every_origin(tmp_path: Path) -> None:
+    path = tmp_path / "allowed.yml"
+    path.write_text('origins:\n  - "*"\n', encoding="utf-8")
+    assert load_cors_allowed(path) == '["*"]'
+
+
+def test_cors_allowed_rejects_a_path(tmp_path: Path) -> None:
+    path = tmp_path / "allowed.yml"
+    path.write_text("origins:\n  - https://lab.arbitium.com/app\n", encoding="utf-8")
+    try:
+        load_cors_allowed(path)
+    except ValueError as exc:
+        assert "no path" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
 
 
 def test_flat_overlay_is_kept(tmp_path: Path) -> None:
