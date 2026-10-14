@@ -81,7 +81,7 @@ renglo bom workflows sync
 
 ## Operator projects
 
-Four projects, days or weeks apart. `renglo.yaml` is the input to every one of them.
+Five projects, days or weeks apart. `renglo.yaml` is the input to every one of them.
 
 
 | Project                          | You end up with                                                                                            | Doc                                                          |
@@ -90,6 +90,7 @@ Four projects, days or weeks apart. `renglo.yaml` is the input to every one of t
 | **2. Registry**                  | A private Python and npm registry you host, and read access to registries you pull from                    | [docs/project-2-registry.md](docs/project-2-registry.md)     |
 | **3. Additional infrastructure** | Each extension placed on the hub or on a peer, installing from a known registry                            | [docs/project-3-extensions.md](docs/project-3-extensions.md) |
 | **4. CI/CD**                     | The BOM repository deploys on a push to `main`, so a release train rolls without a laptop                  | [docs/project-4-pipeline.md](docs/project-4-pipeline.md)     |
+| **5. Federated sign-in**         | External identity providers on the existing Cognito user pool, with secrets in the tenant account          | [docs/project-5-federated-auth.md](docs/project-5-federated-auth.md) |
 
 
 These are projects, not stages. You come back to them. Placement changes after an extension outgrows the hub, a new registry appears, the pipeline gets another tenant.

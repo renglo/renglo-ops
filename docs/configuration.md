@@ -281,3 +281,4 @@ renglo config check    # github.repo against the BOM checkout's origin
 | Host a registry, or read from Renglo's | [project-2-registry.md](project-2-registry.md) |
 | Place extensions on the hub or on peers | [project-3-extensions.md](project-3-extensions.md) |
 | Deploy from the BOM repository | [project-4-pipeline.md](project-4-pipeline.md) |
+| Add Google, Okta, or other federated sign-in | [project-5-federated-auth.md](project-5-federated-auth.md) |
