@@ -5,6 +5,7 @@ from __future__ import annotations
 from aws_cdk import CfnCondition, CfnParameter, Fn, Stack
 from constructs import Construct
 
+from renglo_ops.cdk.runtime_boundary import apply_runtime_boundary
 from stack_names import stack_a_description
 from stacks.ai_storage import AiStorageStack
 from stacks.auth import AuthStack
@@ -42,6 +43,7 @@ class StackA(Stack):
         # Env-agnostic: unresolved tokens → AWS::AccountId / AWS::Region at deploy.
         aws_account = self.account
         aws_region = self.region
+        apply_runtime_boundary(self, env_name=env_name, account=aws_account)
         create_oidc = CfnParameter(
             self,
             "CreateGitHubOIDC",

@@ -356,16 +356,27 @@ def _run_cdk(
     module: str,
     *,
     profile: str,
+    region: str,
     extra_env: dict[str, str],
     dry_run: bool,
     stacks: list[str] | None = None,
 ) -> int:
+    chosen = _require_named_aws_profile(profile, verb="deploy")
+    chosen_region = region.strip()
+    if not chosen_region:
+        raise RengloOpsError(
+            "Refusing to deploy without a region from .renglo/local.yaml.\n"
+            "  The default AWS profile is never used."
+        )
     workspace = workspace_root(Path.cwd())
     outdir = workspace / ".renglo" / "cdk.out"
     refuse_tool_output(outdir)
     env = os.environ.copy()
-    if profile:
-        env["AWS_PROFILE"] = profile
+    env.pop("AWS_DEFAULT_PROFILE", None)
+    env["AWS_PROFILE"] = chosen
+    env["AWS_REGION"] = chosen_region
+    env["AWS_DEFAULT_REGION"] = chosen_region
+    env["CDK_DEFAULT_REGION"] = chosen_region
     env.setdefault("RENGLO_WORKSPACE", str(workspace))
     env.update(extra_env)
     # The CDK CLI must run the app. It reads cdk.context.json, injects it as
@@ -377,6 +388,10 @@ def _run_cdk(
     deploy = [
         cdk,
         "deploy",
+        "--profile",
+        chosen,
+        "--region",
+        chosen_region,
         "--app",
         f"{shlex.quote(sys.executable)} -m {module}",
         "--output",
@@ -402,12 +417,17 @@ def _cmd_stack(args: argparse.Namespace) -> int:
     from renglo.operate import hub_stack_name, parse_stacks
 
     tenant = _tenant_from_env()
-    profile, _region = _profile_region()
+    profile, region = _profile_region()
+    region = (getattr(args, "region", "") or region or tenant.primary_account().region).strip()
     names = [hub_stack_name(tenant.name, part) for part in parse_stacks(args.stack)]
     return _run_cdk(
         "renglo_ops.cdk.hub",
         profile=args.profile or profile,
-        extra_env={"RENGLO_TENANT": str(tenant.path)},
+        region=region,
+        extra_env={
+            "RENGLO_TENANT": str(tenant.path),
+            "RENGLO_CREATE_INSTALLER_ROLE": "true",
+        },
         dry_run=args.dry_run,
         stacks=names,
     )
@@ -415,13 +435,15 @@ def _cmd_stack(args: argparse.Namespace) -> int:
 
 def _cmd_peer(args: argparse.Namespace) -> int:
     tenant = _tenant_from_env()
-    profile, _region = _profile_region()
+    profile, region = _profile_region()
+    region = (getattr(args, "region", "") or region or tenant.primary_account().region).strip()
     extra = {"RENGLO_TENANT": str(tenant.path)}
     if args.peer_id:
         extra["PEER_ID"] = args.peer_id
     return _run_cdk(
         "renglo_ops.cdk.peer",
         profile=args.profile or profile,
+        region=region,
         extra_env=extra,
         dry_run=args.dry_run,
     )
@@ -445,19 +467,21 @@ def _require_named_aws_profile(profile: str, *, verb: str) -> str:
     if not chosen or chosen == "default":
         raise RengloOpsError(
             f"Refusing {verb} without a named AWS profile.\n"
-            "  export AWS_PROFILE=<registry-profile>\n"
-            f"  renglo registry {verb} --profile <registry-profile>"
+            "  The default profile is never used.\n"
+            "  Set profile in .renglo/local.yaml or pass --profile <name>."
         )
     return chosen
 
 
 def _cmd_registry_deploy(args: argparse.Namespace) -> int:
-    profile, _region = _profile_region()
+    profile, region = _profile_region()
     registry_path = _resolve_registry_path(args.registry)
     profile = _require_named_aws_profile(args.profile or profile, verb="deploy")
+    region = (getattr(args, "region", "") or region).strip()
     return _run_cdk(
         "renglo_ops.cdk.registry",
         profile=profile,
+        region=region,
         extra_env={"RENGLO_REGISTRY": str(registry_path)},
         dry_run=args.dry_run,
     )
@@ -568,19 +592,40 @@ def _cmd_stack_destroy(args: argparse.Namespace) -> int:
 def _cmd_account_bootstrap(args: argparse.Namespace) -> int:
     tenant = _tenant_from_env()
     profile, region = _profile_region()
-    profile = args.profile or profile
+    profile = _require_named_aws_profile(args.profile or profile, verb="bootstrap")
     account = tenant.primary_account()
     if not account.id:
         raise RengloOpsError("accounts.staging.id is empty")
-    region = args.region or region or account.region
+    region = (args.region or region or account.region).strip()
+    if not region:
+        raise RengloOpsError(
+            "Refusing to bootstrap without a region from .renglo/local.yaml.\n"
+            "  The default AWS profile is never used."
+        )
+    from renglo_ops.target_role import bootstrap_arguments
+
     cdk = shutil.which("cdk") or "cdk"
-    command = [cdk, "bootstrap", f"aws://{account.id}/{region}"]
-    if profile:
-        command.extend(["--profile", profile])
+    workspace = tenant.path.parent if tenant.path is not None else Path.cwd()
+    command = [
+        cdk,
+        "bootstrap",
+        "--profile",
+        profile,
+        "--region",
+        region,
+        *bootstrap_arguments(workspace, tenant.name, account.id),
+        f"aws://{account.id}/{region}",
+    ]
     print(" ".join(command))
     if args.dry_run:
         return 0
-    return subprocess.run(command).returncode
+    env = os.environ.copy()
+    env.pop("AWS_DEFAULT_PROFILE", None)
+    env["AWS_PROFILE"] = profile
+    env["AWS_REGION"] = region
+    env["AWS_DEFAULT_REGION"] = region
+    env["CDK_DEFAULT_REGION"] = region
+    return subprocess.run(command, env=env).returncode
 
 
 def _cmd_peer_list() -> int:

@@ -7,6 +7,8 @@ deployed right after without a manual step.
 
 from __future__ import annotations
 
+import os
+
 from aws_cdk import CfnCondition, CfnOutput, CustomResource, Duration, RemovalPolicy
 from aws_cdk import aws_codebuild as codebuild
 from aws_cdk import aws_codedeploy as codedeploy
@@ -18,6 +20,7 @@ from aws_cdk import custom_resources as cr
 from constructs import Construct
 
 from lib.github_oidc import github_environment_sub_claims
+from renglo_ops.target_role import INSTALLER_ROLE_NAME, installer_permissions_policy
 from lib.package_registry import codeartifact_owners
 from platform_defaults import (
     backend_ecr_repository_name,
@@ -534,6 +537,22 @@ class RuntimeStack(Construct):
         self.tt_policy = tt_policy
         self.tt_role = tt_role
 
+        self.installer_role = None
+        if os.environ.get("RENGLO_CREATE_INSTALLER_ROLE", "").strip().lower() in ("1", "true", "yes"):
+            self.installer_role = iam.Role(
+                self,
+                "InstallerRole",
+                role_name=INSTALLER_ROLE_NAME,
+                assumed_by=iam.AccountPrincipal(aws_account),
+                inline_policies={
+                    "assume-renglo-deploy": iam.PolicyDocument.from_json(
+                        installer_permissions_policy()
+                    ),
+                },
+                description="Assumes renglo-deploy in the account that receives an installation",
+            )
+            iam.PermissionsBoundary.of(self.installer_role).clear()
+
         # --- ECR policy (allow Lambda to pull from the private repo after seed push) ---
         backend_repo.add_to_resource_policy(
             iam.PolicyStatement(
@@ -748,6 +767,8 @@ class RuntimeStack(Construct):
         CfnOutput(self, "SeedCodeBuildProjectName", value=seed_project.project_name)
         CfnOutput(self, "TenantPolicyArn", value=tt_policy.managed_policy_arn)
         CfnOutput(self, "TenantRoleArn", value=tt_role.role_arn)
+        if self.installer_role is not None:
+            CfnOutput(self, "InstallerRoleArn", value=self.installer_role.role_arn)
         CfnOutput(self, "CodeDeployAppName", value=cd_app.application_name)
         CfnOutput(self, "OidcProviderArn", value=oidc_provider.open_id_connect_provider_arn)
         CfnOutput(self, "OidcDeployRoleArnProduction", value=prod_oidc_role.role_arn)

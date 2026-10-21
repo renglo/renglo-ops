@@ -13,6 +13,7 @@ from aws_cdk import Stack
 from aws_cdk import aws_iam as iam
 from constructs import Construct
 
+from renglo_ops.cdk.runtime_boundary import apply_runtime_boundary
 from stack_names import stack_b_description
 from stacks.app import AppStack
 from stacks.blueprint_uploader import BlueprintUploader
@@ -69,6 +70,7 @@ class StackB(Stack):
         # Env-agnostic: unresolved tokens → AWS::AccountId / AWS::Region at deploy.
         aws_account = self.account
         aws_region = self.region
+        apply_runtime_boundary(self, env_name=env_name, account=aws_account)
         app = AppStack(
             self,
             "App",

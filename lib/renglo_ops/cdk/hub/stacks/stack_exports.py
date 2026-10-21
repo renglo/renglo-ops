@@ -80,6 +80,8 @@ def export_stack_a_outputs(
         runtime.tt_policy.managed_policy_arn,
     )
     _emit(stack, "TenantRoleArn", runtime.tt_role.role_arn)
+    if getattr(runtime, "installer_role", None) is not None:
+        _emit(stack, "InstallerRoleArn", runtime.installer_role.role_arn)
     _emit(stack, "CodeDeployAppName", runtime.cd_app.application_name)
     _emit(stack, "OidcProviderArn", runtime.oidc_provider.open_id_connect_provider_arn)
     _emit(stack, "OidcDeployRoleArnProduction", runtime.oidc_deploy_role_production.role_arn)

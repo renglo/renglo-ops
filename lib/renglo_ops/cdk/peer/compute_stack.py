@@ -50,6 +50,7 @@ from aws_cdk import aws_ssm as ssm
 from constructs import Construct
 
 from github_oidc import github_environment_sub_claims
+from renglo_ops.target_role import INSTALLER_ROLE_NAME
 from package_registry import codeartifact_read_resources
 
 DESCRIPTION = "Reglo Deployment"
@@ -177,6 +178,11 @@ def _handlers_managed_policy_document(
                 sid="ECSHandshakeS3",
                 actions=["s3:PutObject", "s3:GetObject"],
                 resources=[f"arn:aws:s3:::{results_bucket_name}/*"],
+            ),
+            iam.PolicyStatement(
+                sid="AssumeInstallerRole",
+                actions=["sts:AssumeRole"],
+                resources=[f"arn:aws:iam::{account}:role/{INSTALLER_ROLE_NAME}"],
             ),
         ]
     )

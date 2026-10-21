@@ -81,6 +81,9 @@ class HandlersPeerStack:
         from compute_stack import ComputeStack  # type: ignore
 
         stack = Stack(scope, stack_id, **kwargs)
+        from renglo_ops.cdk.runtime_boundary import apply_runtime_boundary
+
+        apply_runtime_boundary(stack, env_name=env_name, account=aws_account)
         ComputeStack(
             stack,
             "Compute",

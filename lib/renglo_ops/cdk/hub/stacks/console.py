@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aws_cdk import CfnDeletionPolicy, CfnOutput, Fn
+from aws_cdk import CfnDeletionPolicy, CfnOutput, Fn, Tags
 from aws_cdk import aws_amplify as amplify
 from constructs import Construct
 
@@ -42,6 +42,7 @@ class ConsoleStack(Construct):
             platform="WEB",
             custom_rules=[SPA_CUSTOM_RULE],
         )
+        Tags.of(app).add("renglo:env", env_name)
         _apply_delete_policy(app)
 
         prod_branch = amplify.CfnBranch(

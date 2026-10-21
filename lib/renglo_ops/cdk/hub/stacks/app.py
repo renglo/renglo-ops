@@ -9,7 +9,7 @@ Deploy order:
 
 from __future__ import annotations
 
-from aws_cdk import CfnDeletionPolicy, CfnOutput, RemovalPolicy
+from aws_cdk import CfnDeletionPolicy, CfnOutput, RemovalPolicy, Tags
 from aws_cdk import aws_apigateway as apigw
 from aws_cdk import aws_apigatewayv2 as apigwv2
 from aws_cdk import aws_lambda as aws_lambda
@@ -250,6 +250,7 @@ class AppStack(Construct):
             name=f"{env_name}-api-{stage}",
             description=DESCRIPTION,
         )
+        Tags.of(rest_api).add("renglo:env", env_name)
 
         proxy_resource = apigw.CfnResource(
             self,
@@ -338,6 +339,7 @@ class AppStack(Construct):
             route_selection_expression="$request.body.action",
             description=DESCRIPTION,
         )
+        Tags.of(ws_api).add("renglo:env", env_name)
 
         integration = apigwv2.CfnIntegration(
             self,

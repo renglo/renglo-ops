@@ -73,14 +73,19 @@ def main() -> None:
     from stacks.stack_a import StackA  # type: ignore
     from stacks.stack_b import StackB  # type: ignore
 
-    env_name = cfg["env_name"]
+    from renglo_ops.target_role import cdk_qualifier
+
+    env_name = str(cfg["env_name"] or "").strip()
     github_repo = cfg["github_repo"]
     provider_catalog = load_provider_catalog(
         tenant_path.parent / "auth" / "providers.yaml",
         env_name=env_name,
     )
     outdir = os.environ.get("CDK_OUTDIR", "").strip()
-    app = cdk.App(outdir=outdir or None)
+    app = cdk.App(
+        outdir=outdir or None,
+        context={"@aws-cdk/core:bootstrapQualifier": cdk_qualifier(env_name)},
+    )
     stack_a = StackA(
         app,
         stack_a_id(env_name),
