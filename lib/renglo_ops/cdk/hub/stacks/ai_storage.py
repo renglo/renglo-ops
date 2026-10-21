@@ -122,6 +122,7 @@ class AiStorageStack(Construct):
             type="AWS::Bedrock::KnowledgeBase",
             properties={
                 "Name": kb_name[:100],
+                "Tags": {"renglo:env": env_name},
                 "Description": "Platform default knowledge base (S3 Vectors backend)",
                 "RoleArn": kb_role.role_arn,
                 "KnowledgeBaseConfiguration": {

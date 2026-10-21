@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from aws_cdk import Aws, CfnOutput, Duration, Fn, RemovalPolicy, SecretValue
+from aws_cdk import Aws, CfnOutput, Duration, Fn, RemovalPolicy, SecretValue, Tags
 from aws_cdk import aws_cognito as cognito
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as aws_lambda
@@ -100,6 +100,7 @@ class AuthStack(Construct):
             user_invitation=_admin_user_invitation(console_setup_base_url),
             removal_policy=RemovalPolicy.DESTROY,
         )
+        Tags.of(user_pool).add("renglo:env", env_name)
 
         user_pool.add_domain(
             "Domain",

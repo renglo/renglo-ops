@@ -132,8 +132,27 @@ def _dockerfile(*, large: bool) -> str:
         else "WORKDIR /build/output\n"
     )
     zip_line = "true" if large else "cd /build/output && zip -r /build/lambda_deployment.zip . -q"
+    # Fargate peers can run renglo stack deploy. That needs Node and the patched
+    # CDK CLI. Git is not installed. Lambda images stay without Node.
+    node = ""
+    if large:
+        node = """
+RUN microdnf install -y nodejs npm \\
+ && npm install --silent --no-fund --no-audit --prefix /opt/cdk aws-cdk@2.1131.0 \\
+ && ln -sf /opt/cdk/node_modules/.bin/cdk /usr/local/bin/cdk \\
+ && python3.12 - <<'PY'
+import pathlib
+path = pathlib.Path("/opt/cdk/node_modules/aws-cdk/lib/index.js")
+text = path.read_text()
+old = 'change.setOtherChange("Metadata", new Difference(value.newValue, value.newValue));'
+new = 'if (value.newValue !== void 0) change.setOtherChange("Metadata", new Difference(value.newValue, value.newValue));'
+if old in text:
+    path.write_text(text.replace(old, new, 1))
+PY
+"""
     return f"""FROM public.ecr.aws/lambda/python:3.12
 RUN microdnf install -y zip && microdnf clean all
+{node}
 WORKDIR /build
 COPY wheelhouse/ /build/wheelhouse/
 COPY handlers-assets/ /build/assets/

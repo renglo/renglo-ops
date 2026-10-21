@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from aws_cdk import CfnOutput, Duration, Fn, RemovalPolicy, Stack
+from aws_cdk import CfnOutput, Duration, Fn, RemovalPolicy, Stack, Tags
 from aws_cdk import aws_apigatewayv2 as apigwv2
 from aws_cdk import aws_apigatewayv2_integrations as apigwv2_integrations
 from aws_cdk import aws_events as events
@@ -101,6 +101,7 @@ class WebhookIngressStack(Construct):
             description="Renglo native webhook edge",
             create_default_stage=True,
         )
+        Tags.of(http_api).add("renglo:env", env_name)
         integration = apigwv2_integrations.HttpLambdaIntegration(
             "WebhookIntegration",
             fn,
