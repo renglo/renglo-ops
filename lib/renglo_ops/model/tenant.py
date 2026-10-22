@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 from renglo_ops.model.errors import RengloOpsError
+from renglo_ops.target_role import normalize_namespace
 
 _IDENTITIES = ("email", "domain")
 
@@ -48,6 +49,7 @@ class Tenant:
     github_repo: str
     email_from: str
     email_identity: str
+    namespace: str = "renglo"
     github_owner_id: str = ""
     github_repo_id: str = ""
     email_hosted_zone_id: str = ""
@@ -160,6 +162,7 @@ def tenant_from_dict(data: dict[str, Any], *, path: Path | None = None) -> Tenan
         raise RengloOpsError("renglo.yaml missing " + ", ".join(missing))
     if identity not in _IDENTITIES:
         raise RengloOpsError("email.identity must be email or domain")
+    namespace = normalize_namespace(data.get("namespace"))
     accounts = {
         str(key): _account(value, f"accounts.{key}")
         for key, value in _mapping(data.get("accounts"), "accounts").items()
@@ -206,6 +209,7 @@ def tenant_from_dict(data: dict[str, Any], *, path: Path | None = None) -> Tenan
         github_repo_id=str(github.get("repo_id") or "").strip(),
         email_from=email_from,
         email_identity=identity,
+        namespace=namespace,
         email_hosted_zone_id=str(email.get("hosted_zone_id") or "").strip(),
         platform=str(data.get("platform") or "").strip(),
         staging=staging,
@@ -253,6 +257,7 @@ def tenant_to_dict(tenant: Tenant) -> dict[str, Any]:
         registries.append(row)
     document = {
         "name": tenant.name,
+        "namespace": tenant.namespace,
         "github": github,
         "email": email,
         "platform": tenant.platform,

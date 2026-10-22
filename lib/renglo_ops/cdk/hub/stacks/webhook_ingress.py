@@ -17,6 +17,8 @@ from aws_cdk import aws_lambda as aws_lambda
 from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
 
+from renglo_ops.target_role import env_tag_key
+
 _ASSET_DIR = Path(__file__).resolve().parents[1] / "assets" / "webhook_edge"
 
 EVENT_SOURCE = "custom.renglo.webhook"
@@ -36,6 +38,7 @@ class WebhookIngressStack(Construct):
         aws_region: str,
         api_base_url: str,
         tenant_role_arn: str,
+        namespace: str = "",
         **kwargs: Any,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -101,7 +104,7 @@ class WebhookIngressStack(Construct):
             description="Renglo native webhook edge",
             create_default_stage=True,
         )
-        Tags.of(http_api).add("renglo:env", env_name)
+        Tags.of(http_api).add(env_tag_key(namespace), env_name)
         integration = apigwv2_integrations.HttpLambdaIntegration(
             "WebhookIntegration",
             fn,

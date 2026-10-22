@@ -29,7 +29,7 @@ Parameters:
     Type: String
   FileAssetsBucketKmsKeyId:
     Description: AWS_MANAGED_KEY uses Amazon S3 encryption (SSE-S3). A key id creates or
-      selects a customer-managed key. Renglo deploy does not require a customer-managed key.
+      selects a customer-managed key. Deploy does not require a customer-managed key.
     Default: AWS_MANAGED_KEY
     Type: String
   ContainerAssetsRepositoryName:

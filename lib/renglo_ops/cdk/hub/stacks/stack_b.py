@@ -59,6 +59,7 @@ class StackB(Stack):
         include_extension: bool = False,
         hub_actions_specs: list[ExtensionActionsSpec] | None = None,
         auth_providers: str = "[]",
+        namespace: str = "",
         **kwargs,
     ) -> None:
         super().__init__(
@@ -79,6 +80,7 @@ class StackB(Stack):
             aws_region=aws_region,
             enable_staging=enable_staging,
             architecture=architecture,
+            namespace=namespace,
         )
 
         self.app = app
@@ -98,6 +100,7 @@ class StackB(Stack):
             aws_region=aws_region,
             api_base_url=rest_url,
             tenant_role_arn=tt_role_arn,
+            namespace=namespace,
         )
         self.webhook = webhook
 
@@ -131,6 +134,7 @@ class StackB(Stack):
                 attach_roles=attach_roles,
                 platform_vector_bucket_name=platform_vector_bucket_name,
                 platform_vector_bucket_arn=platform_vector_bucket_arn,
+                namespace=namespace,
             )
             self.extension = extension
 
@@ -146,6 +150,7 @@ class StackB(Stack):
                 env_name=env_name,
                 specs=remaining_hub,
                 roles=[tenant_role],
+                namespace=namespace,
             )
 
         export_stack_b_app_outputs(self, app)

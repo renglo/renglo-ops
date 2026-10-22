@@ -1,8 +1,8 @@
 """The role a target account must create before this peer can deploy there.
 
 The peer never reads ~/.aws. It calls sts:AssumeRole on this role. The trust
-policy names the installer role renglo-installer and an external id. The laptop
-and the peer both use that role. The permissions policy is
+policy names the installer role for this tenant's namespace and an external id.
+The laptop and the peer both use that role. The permissions policy is
 what cdk bootstrap and a deploy of stack A and stack B need in that account.
 It is written after the env name, account, and region are known, so the hub
 resources are limited to that name. The CDK toolkit names are not.
@@ -19,9 +19,51 @@ from typing import Any
 
 from renglo_ops.model.errors import RengloOpsError
 
-ROLE_NAME = "renglo-deploy"
-INSTALLER_ROLE_NAME = "renglo-installer"
+DEFAULT_NAMESPACE = "renglo"
+_NAMESPACE = re.compile(r"[a-z][a-z0-9-]{0,22}")
 DEFAULT_CDK_QUALIFIER = "hnb659fds"
+
+
+def normalize_namespace(value: str | None = None) -> str:
+    """Short IAM token for one product. Empty means the historical default."""
+    text = str(value or "").strip().lower() or DEFAULT_NAMESPACE
+    if not _NAMESPACE.fullmatch(text):
+        raise RengloOpsError(
+            "namespace must start with a letter and use only lowercase letters, digits, and hyphens"
+        )
+    return text
+
+
+def deploy_role_name(namespace: str | None = None) -> str:
+    return f"{normalize_namespace(namespace)}-deploy"
+
+
+def installer_role_name(namespace: str | None = None) -> str:
+    return f"{normalize_namespace(namespace)}-installer"
+
+
+def env_tag_key(namespace: str | None = None) -> str:
+    return f"{normalize_namespace(namespace)}:env"
+
+
+def bind_namespace_text(text: str, namespace: str | None = None) -> str:
+    """Replace ``{namespace}`` in a policy document with the tenant namespace."""
+    return str(text or "").replace("{namespace}", normalize_namespace(namespace))
+
+
+def is_deploy_role_name(value: str) -> bool:
+    text = str(value or "")
+    suffix = "-deploy"
+    if not text.endswith(suffix):
+        return False
+    try:
+        return deploy_role_name(text[: -len(suffix)]) == text
+    except RengloOpsError:
+        return False
+
+
+ROLE_NAME = deploy_role_name()
+INSTALLER_ROLE_NAME = installer_role_name()
 _ENV_NAME = re.compile(r"[A-Za-z][A-Za-z0-9-]{0,39}")
 _QUALIFIER = re.compile(r"[A-Za-z][A-Za-z0-9-]{0,9}")
 _REGION = re.compile(r"[a-z]{2}-[a-z]+-\d")
@@ -44,21 +86,19 @@ def account_from_arn(arn: str) -> str:
     return ""
 
 
-def installer_role_arn(account_id: str) -> str:
-    """The one role the laptop and the peer both use before assuming renglo-deploy."""
-    return role_arn(account_id, INSTALLER_ROLE_NAME)
+def installer_role_arn(account_id: str, namespace: str | None = None) -> str:
+    """The one role the laptop and the peer both use before assuming the deploy role."""
+    return role_arn(account_id, installer_role_name(namespace))
 
 
-def is_installer_role(arn: str) -> bool:
+def is_installer_role(arn: str, namespace: str | None = None) -> bool:
+    name = installer_role_name(namespace)
     text = str(arn or "")
-    return (
-        f":assumed-role/{INSTALLER_ROLE_NAME}/" in text
-        or text.endswith(f":role/{INSTALLER_ROLE_NAME}")
-    )
+    return f":assumed-role/{name}/" in text or text.endswith(f":role/{name}")
 
 
 def installer_trust_policy(account_id: str) -> dict[str, Any]:
-    """Who may become renglo-installer. Any principal in that account, never a named user."""
+    """Who may become the installer role. Any principal in that account, never a named user."""
     account = str(account_id or "").strip()
     return {
         "Version": "2012-10-17",
@@ -72,16 +112,16 @@ def installer_trust_policy(account_id: str) -> dict[str, Any]:
     }
 
 
-def installer_permissions_policy() -> dict[str, Any]:
-    """renglo-installer may only assume renglo-deploy. It does not deploy by itself."""
+def installer_permissions_policy(namespace: str | None = None) -> dict[str, Any]:
+    """The installer role may only assume the deploy role. It does not deploy by itself."""
     return {
         "Version": "2012-10-17",
         "Statement": [
             {
-                "Sid": "AssumeRengloDeploy",
+                "Sid": "AssumeDeployRole",
                 "Effect": "Allow",
                 "Action": "sts:AssumeRole",
-                "Resource": f"arn:aws:iam::*:role/{ROLE_NAME}",
+                "Resource": f"arn:aws:iam::*:role/{deploy_role_name(namespace)}",
             }
         ],
     }
@@ -596,6 +636,7 @@ def runtime_policy(
     account_id: str,
     region: str,
     email_from: str = "",
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     """Ceiling for application roles. CloudFormation must set this boundary when it creates them.
 
@@ -613,7 +654,7 @@ def runtime_policy(
     vector_bucket = f"{slug}-vectors-{account}"[:63].rstrip("-.")
     assets_bucket = f"cdk-{name}-assets-{account}-{region_name}"
     assets_repo = f"cdk-{name}-container-assets-{account}-{region_name}"
-    tagged = {"StringEquals": {"aws:ResourceTag/renglo:env": name}}
+    tagged = {"StringEquals": {f"aws:ResourceTag/{env_tag_key(namespace)}": name}}
     roles = [
         f"arn:aws:iam::{account}:role/{name}-*",
         f"arn:aws:iam::{account}:role/{name}_*",
@@ -821,6 +862,7 @@ def execution_policy(
     stage: str = "production",
     email_from: str = "",
     email_identity: str = "email",
+    namespace: str | None = None,
 ) -> dict[str, Any]:
     """Permissions cap for CloudFormation. The admin creates this. Deploy cannot edit it.
 
@@ -838,8 +880,9 @@ def execution_policy(
     assets_bucket = f"cdk-{name}-assets-{account}-{region_name}"
     assets_repo = f"cdk-{name}-container-assets-{account}-{region_name}"
     execution_arn = execution_policy_arn(account, name)
-    tag = {"StringEquals": {"aws:RequestTag/renglo:env": name}}
-    tagged = {"StringEquals": {"aws:ResourceTag/renglo:env": name}}
+    tag_key = env_tag_key(namespace)
+    tag = {"StringEquals": {f"aws:RequestTag/{tag_key}": name}}
+    tagged = {"StringEquals": {f"aws:ResourceTag/{tag_key}": name}}
     ses_name = _ses_identity(email_from, email_identity)
     statements: list[dict[str, Any]] = [
         _allow("CallerIdentity", ["sts:GetCallerIdentity"], ["*"]),
@@ -1074,7 +1117,7 @@ def _deploy_role_policy(
     account_id: str,
     region: str,
 ) -> dict[str, Any]:
-    """What renglo-deploy may do itself. Creating the application is left to CloudFormation."""
+    """What the deploy role may do itself. Creating the application is left to CloudFormation."""
     name, account, region_name = _scope(env_name, account_id, region)
     qualifier = cdk_qualifier(name)
     execution_arn = execution_policy_arn(account, name)
@@ -1236,8 +1279,11 @@ def instructions(
     stage: str = "production",
     email_from: str = "",
     email_identity: str = "email",
-    role_name: str = ROLE_NAME,
+    role_name: str = "",
+    namespace: str | None = None,
 ) -> str:
+    slug = normalize_namespace(namespace)
+    role_name = str(role_name or "").strip() or deploy_role_name(slug)
     name, account, region_name = _scope(env_name, account_id, region)
     if not uses_named_qualifier(name):
         trust = json.dumps(trust_policy(peer_role_arn, external_id), indent=2)
@@ -1276,7 +1322,7 @@ def instructions(
     caller_account = account_from_arn(peer_role_arn)
     caller_note = f" ({caller_account})" if caller_account else ""
     sender = str(email_from or "").strip() or "the sender address saved on this installation"
-    template = onboarding_template_yaml()
+    template = onboarding_template_yaml(slug)
     return (
         f"Before you deploy: upload this stack in account {account} ({region_name})\n"
         f"\n"
@@ -1387,7 +1433,7 @@ _STOCK_KMS_DEFAULT = (
 _FIXED_KMS_DEFAULT = (
     "  FileAssetsBucketKmsKeyId:\n"
     "    Description: AWS_MANAGED_KEY uses Amazon S3 encryption (SSE-S3). A key id creates or\n"
-    "      selects a customer-managed key. Renglo deploy does not require a customer-managed key.\n"
+    "      selects a customer-managed key. Deploy does not require a customer-managed key.\n"
     "    Default: AWS_MANAGED_KEY\n"
 )
 
@@ -1542,44 +1588,47 @@ def _cfn_sub(node: Any) -> Any:
     return node
 
 
-def onboarding_template() -> dict[str, Any]:
+def onboarding_template(namespace: str | None = None) -> dict[str, Any]:
     """One stack the target account uploads. It installs the same door a deploy already uses.
 
-    The customer does not run CDK. renglo-deploy trusts the installer role and can
+    The customer does not run CDK. The deploy role trusts the installer role and can
     bootstrap the toolkit for this env name. CloudFormation is capped by the
     execution policy, which is also the role's permissions boundary.
     """
+    slug = normalize_namespace(namespace)
+    deploy_name = deploy_role_name(slug)
+    installer_name = installer_role_name(slug)
     common = {
         "env_name": _TEMPLATE_ENV,
         "account_id": _TEMPLATE_ACCOUNT,
         "region": _TEMPLATE_REGION,
     }
     execution = _cfn_sub(
-        execution_policy(**common, email_from=_TEMPLATE_EMAIL, email_identity="email")
+        execution_policy(**common, email_from=_TEMPLATE_EMAIL, email_identity="email", namespace=slug)
     )
-    runtime = _cfn_sub(runtime_policy(**common, email_from=_TEMPLATE_EMAIL))
+    runtime = _cfn_sub(runtime_policy(**common, email_from=_TEMPLATE_EMAIL, namespace=slug))
     guard = _cfn_sub(role_guard_policy(**common))
     deploy = _cfn_sub(_deploy_role_policy(**common))
     return {
         "AWSTemplateFormatVersion": "2010-09-09",
         "Description": (
-            "Onboarding stack for one Renglo environment. "
-            "It creates role renglo-deploy, the execution policy used as that role's permissions boundary, "
+            "Onboarding stack for one environment. "
+            f"It creates role {deploy_name}, the execution policy used as that role's permissions boundary, "
             "the runtime policy used as the boundary on application roles, "
-            "and the deploy policy attached to renglo-deploy. "
+            f"and the deploy policy attached to {deploy_name}. "
             "Neither policy is AdministratorAccess. "
             "CloudFormation also receives the role-guard policy, so it can create an application role only with the runtime boundary "
             "and a toolkit role only with the execution boundary. "
             "Upload this stack in the target account and do not also create those policies by hand. "
             "You do not install or run CDK. "
-            "The installer assumes renglo-deploy with the external id, bootstraps a toolkit stack named CDKToolkit-{EnvironmentId}, "
+            f"The installer assumes {deploy_name} with the external id, bootstraps a toolkit stack named CDKToolkit-{{EnvironmentId}}, "
             "and deploys the application stacks. "
             "Each environment has its own toolkit stack, so several environments can share one account and region."
         ),
         "Parameters": {
             "VendorPrincipalArn": {
                 "Type": "String",
-                "Default": "arn:aws:iam::339713094352:role/renglo-installer",
+                "Default": f"arn:aws:iam::339713094352:role/{installer_name}",
                 "AllowedPattern": r"^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_-]+$",
                 "Description": "Installer role in the account that runs the deployment.",
             },
@@ -1593,7 +1642,7 @@ def onboarding_template() -> dict[str, Any]:
                 "Type": "String",
                 "AllowedPattern": r"^[a-z][a-z0-9-]{0,9}$",
                 "ConstraintDescription": "1 to 10 characters. Start with a letter. Lowercase letters, digits, and hyphens. This name is the CDK qualifier.",
-                "Description": "Renglo environment name. It is also the CDK bootstrap qualifier.",
+                "Description": "Environment name. It is also the CDK bootstrap qualifier.",
             },
             "EmailIdentity": {
                 "Type": "String",
@@ -1631,7 +1680,7 @@ def onboarding_template() -> dict[str, Any]:
                 "Type": "AWS::IAM::ManagedPolicy",
                 "Properties": {
                     "ManagedPolicyName": {"Fn::Sub": "${EnvironmentId}-deploy"},
-                    "Description": "What renglo-deploy may do. Creating the application is left to CloudFormation.",
+                    "Description": f"What {deploy_name} may do. Creating the application is left to CloudFormation.",
                     "PolicyDocument": deploy,
                 },
             },
@@ -1639,7 +1688,7 @@ def onboarding_template() -> dict[str, Any]:
                 "Type": "AWS::IAM::Role",
                 "DependsOn": "ExecutionPolicy",
                 "Properties": {
-                    "RoleName": ROLE_NAME,
+                    "RoleName": deploy_name,
                     "MaxSessionDuration": 3600,
                     "Description": "Door the installer assumes. CloudFormation deploys under the execution policy.",
                     "PermissionsBoundary": {"Ref": "ExecutionPolicy"},
@@ -1668,10 +1717,10 @@ def onboarding_template() -> dict[str, Any]:
     }
 
 
-def onboarding_template_yaml() -> str:
+def onboarding_template_yaml(namespace: str | None = None) -> str:
     import yaml
 
-    return yaml.safe_dump(onboarding_template(), sort_keys=False)
+    return yaml.safe_dump(onboarding_template(namespace), sort_keys=False)
 
 
 def bootstrap_arguments(workspace: Path, env_name: str, account_id: str) -> list[str]:

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from aws_cdk import aws_iam as iam
 from constructs import Construct
 
 from extension_actions import ExtensionActionsSpec, peer_actions_policy_name
+from renglo_ops.target_role import bind_namespace_text
 
 
 def attach_extension_action_specs(
@@ -17,6 +19,7 @@ def attach_extension_action_specs(
     specs: list[ExtensionActionsSpec],
     roles: list[Any],
     peer_id: str | None = None,
+    namespace: str = "",
 ) -> list[iam.ManagedPolicy]:
     """Attach each spec's policy document to the given roles.
 
@@ -38,7 +41,9 @@ def attach_extension_action_specs(
             scope,
             construct_id,
             managed_policy_name=policy_name,
-            document=iam.PolicyDocument.from_json(spec.document),
+            document=iam.PolicyDocument.from_json(
+                json.loads(bind_namespace_text(json.dumps(spec.document), namespace))
+            ),
             description=spec.policy_description,
         )
         for role in attachable:

@@ -13,6 +13,7 @@ from constructs import Construct
 
 from platform_defaults import cognito_token_validity_hours
 from renglo_ops.auth.providers import AuthProvider, detail_fields
+from renglo_ops.target_role import env_tag_key
 
 _ASSET_DIR = Path(__file__).resolve().parents[1] / "assets" / "pre_signup"
 
@@ -83,6 +84,7 @@ class AuthStack(Construct):
         console_callback_urls: list[str] | None = None,
         console_logout_urls: list[str] | None = None,
         auth_providers: list[AuthProvider] | None = None,
+        namespace: str = "",
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -100,7 +102,7 @@ class AuthStack(Construct):
             user_invitation=_admin_user_invitation(console_setup_base_url),
             removal_policy=RemovalPolicy.DESTROY,
         )
-        Tags.of(user_pool).add("renglo:env", env_name)
+        Tags.of(user_pool).add(env_tag_key(namespace), env_name)
 
         user_pool.add_domain(
             "Domain",

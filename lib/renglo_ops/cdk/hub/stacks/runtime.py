@@ -20,7 +20,7 @@ from aws_cdk import custom_resources as cr
 from constructs import Construct
 
 from lib.github_oidc import github_environment_sub_claims
-from renglo_ops.target_role import INSTALLER_ROLE_NAME, installer_permissions_policy
+from renglo_ops.target_role import deploy_role_name, installer_permissions_policy, installer_role_name
 from lib.package_registry import codeartifact_owners
 from platform_defaults import (
     backend_ecr_repository_name,
@@ -491,6 +491,7 @@ class RuntimeStack(Construct):
         create_github_oidc_condition: CfnCondition | None = None,
         ses_identity_arn: str | None = None,
         package_registry: dict | None = None,
+        namespace: str = "",
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -542,14 +543,14 @@ class RuntimeStack(Construct):
             self.installer_role = iam.Role(
                 self,
                 "InstallerRole",
-                role_name=INSTALLER_ROLE_NAME,
+                role_name=installer_role_name(namespace),
                 assumed_by=iam.AccountPrincipal(aws_account),
                 inline_policies={
-                    "assume-renglo-deploy": iam.PolicyDocument.from_json(
-                        installer_permissions_policy()
+                    "assume-deploy-role": iam.PolicyDocument.from_json(
+                        installer_permissions_policy(namespace)
                     ),
                 },
-                description="Assumes renglo-deploy in the account that receives an installation",
+                description=f"Assumes {deploy_role_name(namespace)} in the account that receives an installation",
             )
             iam.PermissionsBoundary.of(self.installer_role).clear()
 

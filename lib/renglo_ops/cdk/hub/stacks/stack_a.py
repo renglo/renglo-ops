@@ -32,6 +32,7 @@ class StackA(Stack):
         github_repo_id: str | None = None,
         package_registry: dict | None = None,
         auth_providers: list | None = None,
+        namespace: str = "",
         **kwargs,
     ) -> None:
         super().__init__(
@@ -72,6 +73,7 @@ class StackA(Stack):
             "Console",
             env_name=env_name,
             enable_staging=enable_staging,
+            namespace=namespace,
         )
         callback_urls = [console.production_url, console.production_callback_url]
         logout_urls = [console.production_url, console.production_login_url]
@@ -89,6 +91,7 @@ class StackA(Stack):
             console_callback_urls=callback_urls,
             console_logout_urls=logout_urls,
             auth_providers=auth_providers,
+            namespace=namespace,
         )
         email = None
         ses_identity_arn = None
@@ -118,12 +121,14 @@ class StackA(Stack):
             create_github_oidc_condition=create_oidc_condition,
             ses_identity_arn=ses_identity_arn,
             package_registry=package_registry,
+            namespace=namespace,
         )
         ai_storage = AiStorageStack(
             self,
             "AiStorage",
             env_name=env_name,
             aws_account=aws_account,
+            namespace=namespace,
         )
         ai_storage.ai_policy.attach_to_role(runtime.tt_role)
 
