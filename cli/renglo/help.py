@@ -29,7 +29,7 @@ SECTIONS: list[Section] = [
         [
             (
                 "renglo doctor",
-                "Check the BOM, renglo.yaml, CDK, the AWS profile, and which jobs are ready.",
+                "Check the BOM, renglo.yaml, CDK, the AWS profile, which jobs are ready, and whether declared peers are deployed.",
             ),
             (
                 "renglo init",
@@ -59,7 +59,7 @@ SECTIONS: list[Section] = [
         [
             (
                 "renglo doctor",
-                "Check the BOM, renglo.yaml, CDK, the AWS profile, and which jobs are ready.",
+                "Check the BOM, renglo.yaml, CDK, the AWS profile, which jobs are ready, and whether declared peers are deployed.",
             ),
             (
                 "renglo init",

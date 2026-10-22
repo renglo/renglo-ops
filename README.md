@@ -211,7 +211,7 @@ The BOM location is guessed from where you run the command (the checkout you are
 
 ### `renglo doctor`
 
-Runs a checklist: BOM checkout and machine file, whether `renglo.yaml` loads, CDK and AWS CLI tooling, profile and STS credentials, readiness hints for projects 1–4, and common mismatches (for example `github.repo` vs `origin`). Exits with code 1 when any check fails.
+Runs a checklist: BOM checkout and machine file, whether `renglo.yaml` loads, CDK and AWS CLI tooling, profile and STS credentials, readiness hints for projects 1–4, whether each peer in `placement.peers` has a CloudFormation stack, and common mismatches (for example `github.repo` vs `origin`). A declared peer with no stack fails the check. Exits with code 1 when any check fails.
 
 ### `renglo status`
 

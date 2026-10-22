@@ -98,6 +98,83 @@ def _aws_identity(profile: str) -> tuple[bool, str, str]:
     return True, account, arn or account
 
 
+def _cloudformation_client(profile: str, region: str):
+    import boto3
+
+    kwargs: dict[str, str] = {}
+    if profile:
+        kwargs["profile_name"] = profile
+    if region:
+        kwargs["region_name"] = region
+    return boto3.Session(**kwargs).client("cloudformation")
+
+
+def _peer_checks(
+    tenant: Tenant,
+    *,
+    profile: str,
+    region: str,
+    credentials_ok: bool,
+) -> list[Check]:
+    """A peer in placement.peers is absent until its CloudFormation stack exists."""
+    if not tenant.placement_peers:
+        return [
+            Check(
+                "Peers",
+                "Declared peers",
+                Status.SKIP,
+                "no peers in placement",
+            )
+        ]
+    if not credentials_ok:
+        names = ", ".join(sorted(str(key) for key in tenant.placement_peers))
+        return [
+            Check(
+                "Peers",
+                "Declared peers",
+                Status.SKIP,
+                f"need working AWS credentials to see whether {names} are deployed",
+            )
+        ]
+    from renglo.operate import peer_ids, stack_state
+    from renglo_ops.release.peers import peer_stack_name
+
+    try:
+        cfn = _cloudformation_client(profile, region)
+    except Exception as exc:
+        return [
+            Check(
+                "Peers",
+                "Declared peers",
+                Status.FAIL,
+                f"could not open CloudFormation ({exc.__class__.__name__})",
+            )
+        ]
+    checks: list[Check] = []
+    for peer_id in peer_ids(tenant):
+        name = peer_stack_name(tenant.name, peer_id)
+        try:
+            state = stack_state(cfn, name)
+        except Exception as exc:
+            message = str(exc).strip().splitlines()[0][:200] if str(exc).strip() else exc.__class__.__name__
+            checks.append(Check("Peers", f"Peer {peer_id}", Status.FAIL, message))
+            continue
+        if state == "ABSENT":
+            checks.append(
+                Check(
+                    "Peers",
+                    f"Peer {peer_id}",
+                    Status.FAIL,
+                    f"{name} is declared but not deployed; run renglo peer deploy --peer-id {peer_id}",
+                )
+            )
+        elif state.endswith("_COMPLETE") and "ROLLBACK" not in state:
+            checks.append(Check("Peers", f"Peer {peer_id}", Status.OK, f"{name} {state}"))
+        else:
+            checks.append(Check("Peers", f"Peer {peer_id}", Status.WARN, f"{name} {state}"))
+    return checks
+
+
 def _cdk_libraries_ok() -> tuple[bool, str]:
     try:
         import aws_cdk  # noqa: F401
@@ -295,8 +372,10 @@ def run_doctor(start: Path | None = None) -> list[Check]:
             )
         )
 
+    credentials_ok = False
     if aws_cli and profile:
         ok, account, detail = _aws_identity(profile)
+        credentials_ok = ok
         if ok:
             status = Status.OK
             if tenant:
@@ -328,6 +407,17 @@ def run_doctor(start: Path | None = None) -> list[Check]:
                 "Profile credentials (sts get-caller-identity)",
                 Status.SKIP,
                 "no profile configured",
+            )
+        )
+
+    if tenant and not _is_placeholder(tenant):
+        peer_region = region or tenant.primary_account().region
+        checks.extend(
+            _peer_checks(
+                tenant,
+                profile=profile,
+                region=peer_region,
+                credentials_ok=credentials_ok,
             )
         )
 
