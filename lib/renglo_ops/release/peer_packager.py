@@ -21,7 +21,7 @@ if str(_SCRIPTS) not in sys.path:
 
 from lambda_env import merge_peer_lambda_env  # noqa: E402
 from peers import handlers_lambda_function_name, handlers_unit_name  # noqa: E402
-from prepare_handlers_wheelhouse import pin_specs  # noqa: E402
+from prepare_handlers_wheelhouse import runtime_install_specs  # noqa: E402
 
 # CDK seed ZipFile is always named index.py (AWS convention). Real handler zips
 # ship lambda_router.py plus an index.py shim so index.handler still reaches
@@ -184,7 +184,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     if not packages:
         print("ERROR: --packages is required", file=sys.stderr)
         return 1
-    install_specs = pin_specs(packages, wheelhouse)
+    install_specs = runtime_install_specs(packages, wheelhouse, large=bool(args.large))
     print(f"pip install specs: {', '.join(install_specs)}")
     platform = "linux/arm64" if args.local else "linux/amd64"
     tag_suffix = "local" if args.local else "latest"
@@ -384,7 +384,11 @@ def main() -> int:
     b.add_argument("--assets", required=True)
     b.add_argument("--packages", required=True, help="Comma-separated dist names to pip install")
     b.add_argument("--out", default=".peer-build")
-    b.add_argument("--large", action="store_true", help="ECS image with ecs_handler_entrypoint")
+    b.add_argument(
+        "--large",
+        action="store_true",
+        help="ECS image. Install [large-dependencies] for dists that declare it.",
+    )
     b.add_argument("--local", action="store_true", help="linux/arm64 :local tag")
 
     p = sub.add_parser("publish", help="Update peer Lambda code from zip")

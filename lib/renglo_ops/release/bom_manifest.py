@@ -244,10 +244,9 @@ def handlers_python_packages(data: dict[str, Any]) -> tuple[list[str], list[str]
 
     Install pins keep ``renglo-lib`` first (when present), then other ``renglo-*``,
     then extension dists. White-label packs (``*-wl``) stay in the wheelhouse list
-    but are omitted from ``--packages``. Prepare puts all pins in the wheelhouse;
-    ``run.py build --packages`` installs that ordered list (no git clone of
-    ``dev/renglo-lib``). ``install_large_extras`` skips ``renglo-*`` for the
-    ``[large-dependencies]`` step.
+    but are omitted from ``--packages``. Prepare puts all pins in the wheelhouse.
+    The ECS ``--large`` image installs ``[large-dependencies]`` for dists that
+    declare that extra. The Lambda zip installs the base pins only.
     """
     all_pins = list(package_pins(data, "python"))
 

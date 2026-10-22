@@ -420,6 +420,40 @@ def large_extra_specs(
     return pin_specs(names, wheelhouse, extra=LARGE_EXTRA)
 
 
+def _spec_base(spec: str) -> str:
+    base = spec.strip()
+    if "[" in base:
+        base = base.split("[", 1)[0]
+    if "==" in base:
+        base = base.split("==", 1)[0]
+    return base.strip()
+
+
+def runtime_install_specs(
+    packages: list[str],
+    wheelhouse: Path | None = None,
+    *,
+    large: bool = False,
+) -> list[str]:
+    """Return the pip requirements line for one peer image.
+
+    The Lambda zip installs each dist as published. The ECS image
+    (``large=True``) installs ``name[large-dependencies]==ver`` in that same
+    slot when the wheel declares the extra, so those wheels are installed
+    under ``/build/output``.
+    """
+    specs = pin_specs(packages, wheelhouse)
+    if not large:
+        return specs
+    extras = {
+        normalize_dist_name(_spec_base(spec)): spec
+        for spec in large_extra_specs(packages, wheelhouse)
+    }
+    return [
+        extras.get(normalize_dist_name(_spec_base(spec)), spec) for spec in specs
+    ]
+
+
 def download_deps(
     wheelhouse: Path,
     packages: list[str],
