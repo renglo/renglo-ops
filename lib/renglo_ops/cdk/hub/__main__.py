@@ -99,6 +99,7 @@ def main() -> None:
         github_repo_id=cfg["github_repo_id"] or None,
         package_registry=validate_package_registry(cfg["package_registry"]),
         auth_providers=provider_catalog.external_enabled(),
+        namespace=tenant.namespace,
     )
     extension_path = os.environ.get("RENGLO_EXTENSION_PATH", "").strip()
     extension_folder = None
@@ -135,6 +136,7 @@ def main() -> None:
         include_extension=extension_folder is not None and extension_manifest is not None,
         hub_actions_specs=hub_actions,
         auth_providers=provider_catalog.public_json(),
+        namespace=tenant.namespace,
     )
     stack_b.add_dependency(stack_a)
     app.synth()

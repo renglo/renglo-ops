@@ -6,6 +6,8 @@ from aws_cdk import CfnDeletionPolicy, CfnOutput, Fn, Tags
 from aws_cdk import aws_amplify as amplify
 from constructs import Construct
 
+from renglo_ops.target_role import env_tag_key
+
 SPA_CUSTOM_RULE = amplify.CfnApp.CustomRuleProperty(
     source="/<*>",
     target="/index.html",
@@ -31,6 +33,7 @@ class ConsoleStack(Construct):
         *,
         env_name: str,
         enable_staging: bool = True,
+        namespace: str = "",
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -42,7 +45,7 @@ class ConsoleStack(Construct):
             platform="WEB",
             custom_rules=[SPA_CUSTOM_RULE],
         )
-        Tags.of(app).add("renglo:env", env_name)
+        Tags.of(app).add(env_tag_key(namespace), env_name)
         _apply_delete_policy(app)
 
         prod_branch = amplify.CfnBranch(

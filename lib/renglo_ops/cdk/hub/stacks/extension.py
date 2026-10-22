@@ -16,6 +16,8 @@ from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
 from constructs import Construct
 
+from renglo_ops.target_role import bind_namespace_text
+
 from stacks.s3_vectors_kb_access import (
     add_kb_create_dependencies,
     add_kb_role_s3vectors_permissions,
@@ -40,6 +42,7 @@ class ExtensionStack(Construct):
         attach_roles: dict[str, iam.IRole] | None = None,
         platform_vector_bucket_name: str | None = None,
         platform_vector_bucket_arn: str | None = None,
+        namespace: str = "",
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -54,7 +57,7 @@ class ExtensionStack(Construct):
             manifest.get("policy_description", "Extension actions policy")
         )
         policy_document = iam.PolicyDocument.from_json(
-            json.loads(policy_file.read_text(encoding="utf-8"))
+            json.loads(bind_namespace_text(policy_file.read_text(encoding="utf-8"), namespace))
         )
 
         actions_policy = iam.ManagedPolicy(

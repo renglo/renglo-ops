@@ -7,6 +7,7 @@ from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
 from constructs import Construct
 
+from renglo_ops.target_role import env_tag_key
 from stacks.s3_vectors_kb_access import (
     add_kb_create_dependencies,
     add_kb_role_s3vectors_permissions,
@@ -29,6 +30,7 @@ class AiStorageStack(Construct):
         *,
         env_name: str,
         aws_account: str,
+        namespace: str = "",
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -122,7 +124,7 @@ class AiStorageStack(Construct):
             type="AWS::Bedrock::KnowledgeBase",
             properties={
                 "Name": kb_name[:100],
-                "Tags": {"renglo:env": env_name},
+                "Tags": {env_tag_key(namespace): env_name},
                 "Description": "Platform default knowledge base (S3 Vectors backend)",
                 "RoleArn": kb_role.role_arn,
                 "KnowledgeBaseConfiguration": {

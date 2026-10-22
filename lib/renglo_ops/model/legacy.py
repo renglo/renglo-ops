@@ -14,6 +14,7 @@ def customer_config_dict(tenant: Tenant) -> dict[str, Any]:
     staging = tenant.accounts.get("staging")
     return {
         "env_name": tenant.name,
+        "namespace": tenant.namespace,
         "github_repo": tenant.github_repo,
         "github_owner_id": tenant.github_owner_id,
         "github_repo_id": tenant.github_repo_id,

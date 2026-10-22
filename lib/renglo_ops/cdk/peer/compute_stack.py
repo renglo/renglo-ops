@@ -50,7 +50,7 @@ from aws_cdk import aws_ssm as ssm
 from constructs import Construct
 
 from github_oidc import github_environment_sub_claims
-from renglo_ops.target_role import INSTALLER_ROLE_NAME
+from renglo_ops.target_role import installer_role_name
 from package_registry import codeartifact_read_resources
 
 DESCRIPTION = "Reglo Deployment"
@@ -144,6 +144,7 @@ def _handlers_managed_policy_document(
     *,
     results_bucket_name: str,
     peer_id: str | None = None,
+    namespace: str = "",
 ) -> iam.PolicyDocument:
     """IAM for the handlers Lambda to run ECS tasks and write handshake objects."""
     unit = handlers_unit_name(env_name, peer_id)
@@ -182,7 +183,7 @@ def _handlers_managed_policy_document(
             iam.PolicyStatement(
                 sid="AssumeInstallerRole",
                 actions=["sts:AssumeRole"],
-                resources=[f"arn:aws:iam::{account}:role/{INSTALLER_ROLE_NAME}"],
+                resources=[f"arn:aws:iam::{account}:role/{installer_role_name(namespace)}"],
             ),
         ]
     )
@@ -471,9 +472,11 @@ class ComputeStack(Construct):
         package_registry: dict | None = None,
         extension_handles: list[str] | None = None,
         extensions_root: Path | None = None,
+        namespace: str = "",
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
+        self._namespace = namespace
 
         self._peer_id = (peer_id or "").strip() or None
         self._package_registry = package_registry
@@ -604,6 +607,7 @@ class ComputeStack(Construct):
                 aws_account,
                 results_bucket_name=bucket_name,
                 peer_id=peer_id,
+                namespace=self._namespace,
             ),
         )
         task_role.add_managed_policy(handlers_policy)
@@ -865,6 +869,7 @@ class ComputeStack(Construct):
                 ),
                 platform_vector_bucket_name=vector_name,
                 platform_vector_bucket_arn=vector_arn,
+                namespace=self._namespace,
             )
             merged.update(ext.runtime_outputs)
         publishable = {
@@ -967,6 +972,7 @@ class ComputeStack(Construct):
                 aws_account,
                 results_bucket_name=results_bucket_name,
                 peer_id=peer_id,
+                namespace=self._namespace,
             ),
         )
         handlers_lambda_role = iam.Role(

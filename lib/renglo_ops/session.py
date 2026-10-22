@@ -26,11 +26,12 @@ from renglo_ops.model.tenant import (
     tenant_to_dict,
 )
 from renglo_ops.target_role import (
-    ROLE_NAME,
+    DEFAULT_NAMESPACE,
     account_from_arn,
     bootstrap_arguments,
     installer_role_arn,
     is_installer_role,
+    normalize_namespace,
     require_env_name,
     role_arn,
 )
@@ -88,6 +89,8 @@ class OperatorSession:
         github_repo: str,
         role: str = "staging",
         email_identity: str = "email",
+        namespace: str = "",
+        both: bool = False,
         force: bool = False,
     ) -> str:
         """Write renglo.yaml. The profile is required and is not stored in the file."""
@@ -116,17 +119,26 @@ class OperatorSession:
                 raise RengloOpsError(
                     f"{path} already describes {current.name}. Pass force to replace it"
                 )
-            existing = current.accounts.get(which)
-            if (
-                not force
-                and current.name == name
-                and existing
-                and existing.id
-                and existing.id != account
-            ):
-                raise RengloOpsError(
-                    f"accounts.{which}.id is already set. Pass force to replace it"
-                )
+            guarded = ("staging", "production") if both else (which,)
+            for key in guarded:
+                existing = current.accounts.get(key)
+                if (
+                    not force
+                    and current.name == name
+                    and existing
+                    and existing.id
+                    and existing.id != account
+                ):
+                    raise RengloOpsError(
+                        f"accounts.{key}.id is already set. Pass force to replace it"
+                    )
+
+        if str(namespace or "").strip():
+            chosen_namespace = normalize_namespace(namespace)
+        elif current is not None:
+            chosen_namespace = current.namespace
+        else:
+            chosen_namespace = DEFAULT_NAMESPACE
 
         accounts = {
             "staging": Account(id="", region=region_name, enabled=False),
@@ -135,13 +147,19 @@ class OperatorSession:
         if current is not None and (current.name == name or force):
             for key, item in current.accounts.items():
                 accounts[key] = Account(id=item.id, region=item.region, enabled=item.enabled)
-        accounts[which] = Account(id=account, region=region_name, enabled=True)
+        filled = Account(id=account, region=region_name, enabled=True)
+        if both:
+            accounts["staging"] = filled
+            accounts["production"] = Account(id=account, region=region_name, enabled=True)
+        else:
+            accounts[which] = filled
 
         tenant = Tenant(
             name=name,
             github_repo=repo,
             email_from=sender,
             email_identity=identity,
+            namespace=chosen_namespace,
             platform=_platform_version(),
             accounts=accounts,
             release_bom="0.1.0",
@@ -381,7 +399,7 @@ class OperatorSession:
         external_id: str,
         region: str,
     ) -> dict[str, str]:
-        """Assume renglo-deploy as renglo-installer. A task role or user hops there first."""
+        """Assume the deploy role as the installer role. A task role or user hops there first."""
         name = _require_profile(profile)
         account = _require_account(account_id)
         external = str(external_id or "").strip()
@@ -390,6 +408,7 @@ class OperatorSession:
         region_name = str(region or "").strip()
         if not region_name:
             raise RengloOpsError("region is required")
+        namespace = load_tenant(self.tenant_path()).namespace if self.tenant_path().is_file() else DEFAULT_NAMESPACE
         target = role_arn(account, name)
         caller = self.session
         if caller is None:
@@ -398,12 +417,12 @@ class OperatorSession:
             caller = boto3.Session()
         sts = caller.client("sts", region_name=region_name)
         current = sts.get_caller_identity()["Arn"]
-        if not is_installer_role(current):
+        if not is_installer_role(current, namespace):
             caller_account = account_from_arn(current)
             if not caller_account:
                 raise RengloOpsError("could not read the account from the caller")
             hopped = sts.assume_role(
-                RoleArn=installer_role_arn(caller_account),
+                RoleArn=installer_role_arn(caller_account, namespace),
                 RoleSessionName="rops-installer",
             )
             creds = hopped["Credentials"]

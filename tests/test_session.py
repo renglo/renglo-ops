@@ -120,6 +120,18 @@ def test_init_writes_yaml_without_a_profile_field(tmp_path: Path) -> None:
     assert tenant.accounts["production"].enabled is False
     assert "profile" not in text
     assert "renglo-deploy" not in text
+    assert tenant.namespace == "renglo"
+    assert "namespace: renglo" in text
+
+
+def test_init_can_put_the_same_account_on_both_stages(tmp_path: Path) -> None:
+    session, _text = _init(tmp_path, both=True)
+    tenant = load_tenant(session.tenant_path())
+    assert tenant.accounts["staging"].id == "123456789012"
+    assert tenant.accounts["staging"].enabled is True
+    assert tenant.accounts["production"].id == "123456789012"
+    assert tenant.accounts["production"].enabled is True
+    assert tenant.accounts["staging"].region == tenant.accounts["production"].region
 
 
 def test_init_keeps_an_existing_account_until_force(tmp_path: Path) -> None:
@@ -363,6 +375,17 @@ def _resolve_template(node, *, env: str, account: str, region: str, email: str):
             for key, value in node.items()
         }
     return node
+
+
+def test_onboarding_template_uses_the_tenant_namespace() -> None:
+    document = onboarding_template("arbitium")
+    text = json.dumps(document)
+    assert document["Resources"]["DeployRole"]["Properties"]["RoleName"] == "arbitium-deploy"
+    assert "arbitium:env" in text
+    assert "role/arbitium-installer" in text
+    assert "renglo-deploy" not in text
+    assert "renglo-installer" not in text
+    assert "renglo:env" not in text
 
 
 def test_onboarding_template_is_the_deploy_door() -> None:

@@ -17,6 +17,7 @@ from aws_cdk import aws_logs as logs
 from constructs import Construct
 
 from platform_defaults import backend_seed_image_uri, lambda_architecture_cfn
+from renglo_ops.target_role import env_tag_key
 
 DESCRIPTION = "Reglo Deployment"
 
@@ -73,9 +74,11 @@ class AppStack(Construct):
         architecture: str = "x86_64",
         timeout_seconds: int = 30,
         memory_mb: int = 512,
+        namespace: str = "",
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
+        self._namespace = namespace
 
         seed_uri = backend_seed_image_uri(
             env_name=env_name,
@@ -250,7 +253,7 @@ class AppStack(Construct):
             name=f"{env_name}-api-{stage}",
             description=DESCRIPTION,
         )
-        Tags.of(rest_api).add("renglo:env", env_name)
+        Tags.of(rest_api).add(env_tag_key(self._namespace), env_name)
 
         proxy_resource = apigw.CfnResource(
             self,
@@ -339,7 +342,7 @@ class AppStack(Construct):
             route_selection_expression="$request.body.action",
             description=DESCRIPTION,
         )
-        Tags.of(ws_api).add("renglo:env", env_name)
+        Tags.of(ws_api).add(env_tag_key(self._namespace), env_name)
 
         integration = apigwv2.CfnIntegration(
             self,

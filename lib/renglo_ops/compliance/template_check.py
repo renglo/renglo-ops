@@ -15,7 +15,19 @@ from typing import Any, Literal
 
 import yaml
 
-from renglo_ops.target_role import ROLE_NAME, uses_named_qualifier
+from renglo_ops.target_role import ROLE_NAME, is_deploy_role_name, uses_named_qualifier
+
+
+def _deploy_role_name(template: dict[str, Any]) -> str:
+    resources = template.get("Resources") or {}
+    if not isinstance(resources, dict):
+        return ""
+    deploy = resources.get("DeployRole")
+    if not isinstance(deploy, dict):
+        return ""
+    name = (deploy.get("Properties") or {}).get("RoleName")
+    return name if isinstance(name, str) else ""
+
 
 Severity = Literal["error", "warning", "info"]
 
@@ -237,7 +249,7 @@ class TemplateComplianceChecker:
         text = _dump_for_scan(template)
         if "CDKToolkit" in text and "CloudFormationExecutionRole" in text:
             return TemplateKind.BOOTSTRAP
-        if ROLE_NAME in text and "ExecutionPolicy" in text:
+        if is_deploy_role_name(_deploy_role_name(template)) and "ExecutionPolicy" in text:
             return TemplateKind.ONBOARDING
         return TemplateKind.APPLICATION
 
@@ -328,12 +340,12 @@ class TemplateComplianceChecker:
         deploy = resources.get("DeployRole")
         if isinstance(deploy, dict):
             props = deploy.get("Properties") or {}
-            if props.get("RoleName") != ROLE_NAME:
+            if not is_deploy_role_name(str(props.get("RoleName") or "")):
                 self._add(
                     report,
                     ComplianceFinding(
                         "SEC-001",
-                        f"Deploy role must be named {ROLE_NAME}.",
+                        "Deploy role name must be the namespace followed by -deploy.",
                         resource_id="DeployRole",
                     ),
                 )
@@ -343,7 +355,7 @@ class TemplateComplianceChecker:
                     report,
                     ComplianceFinding(
                         "SEC-003",
-                        "renglo-deploy must use ExecutionPolicy as its permissions boundary.",
+                        "The deploy role must use ExecutionPolicy as its permissions boundary.",
                         resource_id="DeployRole",
                     ),
                 )
@@ -570,7 +582,12 @@ class TemplateComplianceChecker:
                 continue
             props = resource.get("Properties") or {}
             role_name = _dump_for_scan(props.get("RoleName"))
-            if ROLE_NAME in role_name or "renglo-installer" in role_name or "Installer" in logical_id:
+            deploy_name = _deploy_role_name(template) or ROLE_NAME
+            if (
+                deploy_name in role_name
+                or role_name.endswith("-installer")
+                or "Installer" in logical_id
+            ):
                 continue
             for _pid, policy in _policy_documents(template):
                 if not _pid.startswith(logical_id):
@@ -583,19 +600,19 @@ class TemplateComplianceChecker:
                     if "sts:AssumeRole" not in action_text:
                         continue
                     resource_text = _dump_for_scan(statement.get("Resource"))
-                    if ROLE_NAME in resource_text or f"role/{ROLE_NAME}" in resource_text:
+                    if deploy_name in resource_text or f"role/{deploy_name}" in resource_text:
                         self._add(
                             report,
                             ComplianceFinding(
                                 "SEC-002",
-                                "Application runtime roles must not be allowed to assume renglo-deploy.",
+                                "Application runtime roles must not be allowed to assume the deploy role.",
                                 resource_id=logical_id,
                             ),
                         )
                         break
 
     def _classify_role(self, logical_id: str, role_name_text: str, role_context: str) -> str:
-        if ROLE_NAME in role_name_text or logical_id == "DeployRole":
+        if is_deploy_role_name(role_name_text) or logical_id == "DeployRole":
             return "deploy"
         if role_context == "toolkit":
             if "CloudFormationExecution" in logical_id or "cfn-exec" in role_name_text:
