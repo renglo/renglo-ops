@@ -1,4 +1,4 @@
-"""StorageStack: S3 data bucket + 8 DynamoDB tables."""
+"""StorageStack: S3 data bucket + DynamoDB tables."""
 
 from aws_cdk import CfnOutput, RemovalPolicy
 from aws_cdk import aws_dynamodb as dynamodb
@@ -54,6 +54,7 @@ class StorageStack(Construct):
         self._make_table(env_name, "chat", pk="index", sk="entity_index")
         self._make_table(env_name, "session", pk="index", sk="entity_index")
         self._make_table(env_name, "search", pk="index", sk="search_index")
+        self._make_table(env_name, "timeseries", pk="index", sk="metric_index")
         self._make_data_table(env_name)
         self._make_graph_table(env_name)
 

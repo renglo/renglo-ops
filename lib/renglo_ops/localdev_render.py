@@ -139,6 +139,7 @@ def _render_env_config(
         f"DYNAMODB_GRAPH_TABLE = {_env_config_str(v('DYNAMODB_GRAPH_TABLE'))}",
         f"DYNAMODB_SEARCH_TABLE = {_env_config_str(v('DYNAMODB_SEARCH_TABLE'))}",
         f"DYNAMODB_SESSION_TABLE = {_env_config_str(v('DYNAMODB_SESSION_TABLE'))}",
+        f"DYNAMODB_TIMESERIES_TABLE = {_env_config_str(v('DYNAMODB_TIMESERIES_TABLE'))}",
         "",
         "# GraphDB",
         "GRAPH_DB_ENABLED = True",

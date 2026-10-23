@@ -288,7 +288,7 @@ _LAMBDA_ACTIONS = [
     "lambda:ListTags",
 ]
 
-_TABLES = ("blueprints", "entities", "rel", "chat", "session", "search", "data", "graph")
+_TABLES = ("blueprints", "entities", "rel", "chat", "session", "search", "data", "graph", "timeseries")
 _DATA_INDEXES = ("geo_index", "path_index", "time_index")
 
 
