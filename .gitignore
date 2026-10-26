@@ -9,3 +9,5 @@ dist/
 build/
 .renglo/
 cdk.out/
+
+.DS_Store
