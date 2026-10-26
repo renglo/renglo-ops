@@ -146,6 +146,7 @@ def tenant_dynamodb_vars(env_name: str) -> dict[str, str]:
         "DYNAMODB_SESSION_TABLE": f"{prefix}_session",
         "DYNAMODB_SEARCH_TABLE": f"{prefix}_search",
         "DYNAMODB_GRAPH_TABLE": f"{prefix}_graph",
+        "DYNAMODB_TIMESERIES_TABLE": f"{prefix}_timeseries",
     }
 
 

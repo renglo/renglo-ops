@@ -111,6 +111,7 @@ def dynamodb_vars(env_name: str) -> dict[str, str]:
         "DYNAMODB_SESSION_TABLE": f"{env_name}_session",
         "DYNAMODB_SEARCH_TABLE": f"{env_name}_search",
         "DYNAMODB_GRAPH_TABLE": f"{env_name}_graph",
+        "DYNAMODB_TIMESERIES_TABLE": f"{env_name}_timeseries",
     }
 
 
