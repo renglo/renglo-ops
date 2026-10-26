@@ -60,6 +60,7 @@ class StackB(Stack):
         hub_actions_specs: list[ExtensionActionsSpec] | None = None,
         auth_providers: str = "[]",
         namespace: str = "",
+        runtime_env: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -182,6 +183,7 @@ class StackB(Stack):
                 from_email=from_email,
                 webhook=webhook,
                 auth_providers=auth_providers,
+                runtime_env=runtime_env,
             )
 
         BlueprintUploader(self, "BlueprintUploader", env_name=env_name)

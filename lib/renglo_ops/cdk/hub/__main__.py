@@ -137,6 +137,7 @@ def main() -> None:
         hub_actions_specs=hub_actions,
         auth_providers=provider_catalog.public_json(),
         namespace=tenant.namespace,
+        runtime_env=tenant.env,
     )
     stack_b.add_dependency(stack_a)
     app.synth()

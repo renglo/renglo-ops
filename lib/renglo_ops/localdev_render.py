@@ -19,6 +19,7 @@ Re-run after infrastructure or SSM changes to refresh values for developers.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import secrets
@@ -43,6 +44,19 @@ def _py_str(value: Any) -> str:
     return json.dumps(str(value if value is not None else ""))
 
 
+def _assigned_string(raw: str) -> str | None:
+    expr = raw.split(" #", 1)[0].strip()
+    if not expr.startswith(("'", '"')):
+        return None
+    try:
+        value = ast.literal_eval(expr)
+    except (SyntaxError, ValueError):
+        return None
+    if isinstance(value, str):
+        return value
+    return None
+
+
 def _existing_secrets(path: Path) -> dict[str, str]:
     if not path.is_file():
         return {}
@@ -53,13 +67,15 @@ def _existing_secrets(path: Path) -> dict[str, str]:
         "CSRF_SESSION_KEY",
         "RENGLO_INGRESS_SECRET",
         "OPENAI_API_KEY",
+        "BEDROCK_MODELS",
+        "OPENAI_MODELS",
     ):
         prefix = f"{key} = "
         for line in text.splitlines():
             if line.startswith(prefix):
-                raw = line[len(prefix) :].strip()
-                if raw.startswith(("'", '"')):
-                    out[key] = raw.strip("'\"")
+                value = _assigned_string(line[len(prefix) :].strip())
+                if value is not None:
+                    out[key] = value
                 break
     return out
 
@@ -175,8 +191,12 @@ def _render_env_config(
         f"S3_VECTORS_INDEX_CATALOG = {_env_config_str(v('S3_VECTORS_INDEX_CATALOG'))}",
         f"S3_VECTORS_INDEX_CAMPAIGNS = {_env_config_str(v('S3_VECTORS_INDEX_CAMPAIGNS'))}",
         "",
-        "# OPEN AI — set locally if needed (not stored in SSM)",
+        "# OPEN AI — the key is local. The model list comes from SSM platform-vars.",
         f"OPENAI_API_KEY = {_env_config_str(v('OPENAI_API_KEY'))}",
+        f"OPENAI_MODELS = {_env_config_str(v('OPENAI_MODELS'))}",
+        "",
+        "# Bedrock Converse model ids, comma-separated (from SSM platform-vars).",
+        f"BEDROCK_MODELS = {_env_config_str(v('BEDROCK_MODELS'))}",
         "",
         "# WEB SOCKET — local WSS (dev/wss). Uncomment cloud line to test against API Gateway instead.",
         f"# WEBSOCKET_CONNECTIONS = {_env_config_str(cloud_ws_connections)}",
@@ -425,10 +445,13 @@ def run_write_local_config(
     if ingress_secret:
         vars_block["RENGLO_INGRESS_SECRET"] = ingress_secret
 
-    # Local-only secrets: keep values across regen; never pulled from SSM.
+    # Fill from the existing file only when SSM has not published the key.
+    # OPENAI_API_KEY stays local. Bedrock model ids come from SSM after stack B.
     if preserve_secrets:
         for key in (
             "OPENAI_API_KEY",
+            "BEDROCK_MODELS",
+            "OPENAI_MODELS",
         ):
             if key not in vars_block or not str(vars_block.get(key) or "").strip():
                 preserved = existing.get(key) or ""
