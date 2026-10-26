@@ -115,6 +115,35 @@ def dynamodb_vars(env_name: str) -> dict[str, str]:
     }
 
 
+# Additive keys. An extension whose platform pin is below the version does not
+# demand them. Derived keys are written by stack deploy. Operator keys are
+# copied from renglo.yaml env on that same deploy.
+PLATFORM_KEY_ADDITIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("0.1.8", ("DYNAMODB_TIMESERIES_TABLE", "BEDROCK_MODEL", "BEDROCK_CONVERSE_MODEL")),
+)
+
+DERIVED_PLATFORM_KEYS = frozenset({"DYNAMODB_TIMESERIES_TABLE"})
+OPERATOR_PLATFORM_KEYS = ("BEDROCK_MODEL", "BEDROCK_CONVERSE_MODEL")
+
+
+def timeseries_table_name(env_name: str) -> str:
+    return f"{env_name.strip()}_timeseries"
+
+
+def llm_platform_vars(env: dict[str, MapValue] | None) -> dict[str, MapValue]:
+    """Model ids an operator set under renglo.yaml env. Blank values stay out of SSM."""
+    source = env or {}
+    selected: dict[str, MapValue] = {}
+    for key in OPERATOR_PLATFORM_KEYS:
+        value = source.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            selected[key] = text
+    return selected
+
+
 def merge_vars(*parts: dict[str, MapValue]) -> dict[str, MapValue]:
     merged: dict[str, MapValue] = {}
     for part in parts:
@@ -165,6 +194,7 @@ def build_launcher_vars(
     extension_vars: dict[str, MapValue],
     from_email: MapValue = "",
     auth_providers: str = "[]",
+    platform_env: dict[str, MapValue] | None = None,
 ) -> dict[str, MapValue]:
     backend_fn = stage_app.get("fn_name", f"{env_name}-backend-{stage}")
     rest_url = normalize_url(stage_app.get("rest_url", ""))
@@ -213,7 +243,7 @@ def build_launcher_vars(
         "ECS_RESULTS_BUCKET": compute_outputs.get("HandlersResultsBucketName", ""),
         **ecs_network,
     }
-    return merge_vars(base, extension_vars)
+    return merge_vars(base, extension_vars, llm_platform_vars(platform_env))
 
 
 def build_deploy_input_vars(
@@ -229,6 +259,7 @@ def build_deploy_input_vars(
     compute_outputs: dict[str, MapValue],
     ecs_network: dict[str, MapValue],
     extension_vars: dict[str, MapValue],
+    platform_env: dict[str, MapValue] | None = None,
 ) -> dict[str, MapValue]:
     handlers_fn = str(compute_outputs.get("HandlersLambdaFunctionName") or "").strip()
     handlers_ecr_uri = compute_outputs.get("HandlersEcrRepoUri", "")
@@ -263,6 +294,7 @@ def build_deploy_input_vars(
             **ecs_network,
         },
         extension_vars,
+        llm_platform_vars(platform_env),
     )
 
 
