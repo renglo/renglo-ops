@@ -430,6 +430,17 @@ def run_doctor(start: Path | None = None) -> list[Check]:
             str(ws),
         )
     )
+    if tenant and not _is_placeholder(tenant):
+        live_region = region or tenant.primary_account().region
+        checks.extend(
+            _platform_contract_checks(
+                tenant,
+                workspace=ws,
+                credentials_ok=credentials_ok,
+                profile=profile,
+                region=live_region,
+            )
+        )
 
     # --- Project readiness ---
     if not tenant or _is_placeholder(tenant):
@@ -663,6 +674,242 @@ def run_doctor(start: Path | None = None) -> list[Check]:
             )
         )
 
+    return checks
+
+
+def _load_platform_vars(ssm: object, env_name: str, stage: str) -> dict[str, str]:
+    from renglo.operate import _load_vars
+
+    return _load_vars(ssm, env_name, stage)
+
+
+def _timeseries_table_state(profile: str, region: str, table_name: str) -> tuple[str, str]:
+    """Return (ok|missing|error, detail)."""
+    import boto3
+
+    kwargs: dict[str, str] = {}
+    if profile:
+        kwargs["profile_name"] = profile
+    if region:
+        kwargs["region_name"] = region
+    client = boto3.Session(**kwargs).client("dynamodb")
+    try:
+        client.describe_table(TableName=table_name)
+    except Exception as exc:
+        code = ""
+        response = getattr(exc, "response", None)
+        if isinstance(response, dict):
+            code = str((response.get("Error") or {}).get("Code") or "")
+        if code == "ResourceNotFoundException" or "ResourceNotFoundException" in type(exc).__name__:
+            return "missing", table_name
+        text = str(exc).strip().splitlines()[0][:200] if str(exc).strip() else exc.__class__.__name__
+        return "error", text
+    return "ok", table_name
+
+
+def _ssm_client(profile: str, region: str):
+    import boto3
+
+    kwargs: dict[str, str] = {}
+    if profile:
+        kwargs["profile_name"] = profile
+    if region:
+        kwargs["region_name"] = region
+    return boto3.Session(**kwargs).client("ssm")
+
+
+def _platform_stages(tenant: Tenant) -> list[str]:
+    stages = ["production"]
+    staging = tenant.accounts.get("staging")
+    if staging and staging.enabled:
+        stages.append("staging")
+    return stages
+
+
+def _platform_contract_checks(
+    tenant: Tenant,
+    *,
+    workspace: Path,
+    credentials_ok: bool,
+    profile: str,
+    region: str,
+) -> list[Check]:
+    from renglo_ops.cdk.shared.config_builder import timeseries_table_name
+    from renglo_ops.platform_contract import (
+        demanded_keys,
+        env_config_values,
+        extension_pins,
+        missing_stages,
+        placed_handles,
+        requirement_sentence,
+    )
+
+    handles = placed_handles(tenant)
+    if not handles:
+        return [
+            Check(
+                "Platform",
+                "Extension platform pins",
+                Status.SKIP,
+                "no extensions in placement",
+            )
+        ]
+    pins = extension_pins(workspace, handles)
+    unread = [item.handle for item in pins if not item.checked_out]
+    demand = demanded_keys(pins)
+    checks: list[Check] = []
+    if unread:
+        names = ", ".join(unread)
+        if len(unread) == 1:
+            detail = (
+                f"{names} is placed but extensions/{names} is not checked out, "
+                "so its platform pin was not compared to platform-vars"
+            )
+        else:
+            detail = (
+                f"{names} are placed but their extension checkouts are missing, "
+                "so their platform pins were not compared to platform-vars"
+            )
+        checks.append(Check("Platform", "Extension platform pins", Status.WARN, detail))
+    elif not demand:
+        names = ", ".join(item.handle for item in pins)
+        checks.append(
+            Check(
+                "Platform",
+                "Extension platform pins",
+                Status.OK,
+                f"{names} predate added platform keys",
+            )
+        )
+    else:
+        names = ", ".join(sorted({handle for group in demand.values() for handle in group}))
+        checks.append(
+            Check(
+                "Platform",
+                "Extension platform pins",
+                Status.OK,
+                f"{names} require added platform keys",
+            )
+        )
+    if not demand:
+        return checks
+    if not credentials_ok:
+        who = ", ".join(sorted({handle for group in demand.values() for handle in group}))
+        checks.append(
+            Check(
+                "Platform",
+                "Platform vars",
+                Status.SKIP,
+                f"need working AWS credentials to compare platform-vars for {who}",
+            )
+        )
+        return checks
+
+    stages = _platform_stages(tenant)
+    try:
+        ssm = _ssm_client(profile, region)
+    except Exception as exc:
+        checks.append(
+            Check(
+                "Platform",
+                "Platform vars",
+                Status.WARN,
+                f"could not open SSM ({exc.__class__.__name__})",
+            )
+        )
+        return checks
+    live: dict[str, dict[str, str]] = {}
+    read_errors: list[str] = []
+    for stage in stages:
+        try:
+            live[stage] = _load_platform_vars(ssm, tenant.name, stage)
+        except Exception as exc:
+            text = str(exc).strip().splitlines()[0][:200] if str(exc).strip() else exc.__class__.__name__
+            read_errors.append(f"platform-vars/{stage} {text}")
+    if read_errors:
+        checks.append(
+            Check(
+                "Platform",
+                "Platform vars",
+                Status.WARN,
+                "; ".join(read_errors),
+            )
+        )
+        return checks
+
+    sentences: list[str] = []
+    for key, key_handles in demand.items():
+        absent = missing_stages(key, live)
+        if not absent:
+            continue
+        sentences.append(
+            requirement_sentence(
+                key,
+                key_handles,
+                absent,
+                operator_value=str(tenant.env.get(key) or ""),
+            )
+        )
+    if sentences:
+        for sentence in sentences:
+            checks.append(Check("Platform", "Platform vars", Status.WARN, sentence))
+    else:
+        present = ", ".join(demand)
+        checks.append(Check("Platform", "Platform vars", Status.OK, f"platform-vars has {present}"))
+
+    if "DYNAMODB_TIMESERIES_TABLE" in demand:
+        published = ""
+        for block in live.values():
+            published = str(block.get("DYNAMODB_TIMESERIES_TABLE") or "").strip()
+            if published:
+                break
+        table_name = published or timeseries_table_name(tenant.name)
+        state, detail = _timeseries_table_state(profile, region, table_name)
+        if state == "ok":
+            checks.append(Check("Platform", "Timeseries table", Status.OK, table_name))
+        elif state == "missing":
+            checks.append(
+                Check(
+                    "Platform",
+                    "Timeseries table",
+                    Status.WARN,
+                    f"{table_name} is absent; run renglo stack deploy --stack a",
+                )
+            )
+        else:
+            checks.append(Check("Platform", "Timeseries table", Status.WARN, detail))
+
+    production = live.get("production") or {}
+    local_path = workspace / "dev" / "renglo-api" / "env_config.py"
+    if local_path.is_file() and production:
+        have = [
+            key
+            for key in demand
+            if str(production.get(key) or "").strip()
+        ]
+        if have:
+            values = env_config_values(local_path.read_text(encoding="utf-8"))
+            stale = [key for key in have if not str(values.get(key) or "").strip()]
+            if stale:
+                listed = ", ".join(stale)
+                checks.append(
+                    Check(
+                        "Platform",
+                        "Local API config",
+                        Status.WARN,
+                        f"dev/renglo-api/env_config.py is missing {listed}; "
+                        "run renglo state local-config --apply",
+                    )
+                )
+            else:
+                checks.append(
+                    Check(
+                        "Platform",
+                        "Local API config",
+                        Status.OK,
+                        "dev/renglo-api/env_config.py has the platform-vars keys",
+                    )
+                )
     return checks
 
 
