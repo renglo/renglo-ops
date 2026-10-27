@@ -46,6 +46,7 @@ class BootstrapConfigStack(Construct):
         ai_storage: Any | None = None,
         auth_providers: str = "[]",
         platform_env: dict[str, Any] | None = None,
+        runtime_env: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(scope, construct_id)
 
@@ -91,6 +92,7 @@ class BootstrapConfigStack(Construct):
             "from_email": (from_email or "").strip(),
             "auth_providers": auth_providers or "[]",
             "platform_env": platform_env,
+            "runtime_env": runtime_env or {},
         }
 
         prod_vars = build_launcher_vars(
@@ -141,6 +143,7 @@ class BootstrapConfigStack(Construct):
             ecs_network=ecs_network,
             extension_vars=extension_vars,
             platform_env=platform_env,
+            runtime_env=runtime_env or {},
         )
         deploy_envelope = build_deploy_input_envelope(
             github_repo=github_repo,

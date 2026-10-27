@@ -138,6 +138,7 @@ def main() -> None:
         auth_providers=provider_catalog.public_json(),
         namespace=tenant.namespace,
         platform_env=dict(tenant.env),
+        runtime_env=dict(tenant.env),
     )
     stack_b.add_dependency(stack_a)
     app.synth()

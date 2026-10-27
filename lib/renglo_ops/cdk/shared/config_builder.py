@@ -151,6 +151,25 @@ def merge_vars(*parts: dict[str, MapValue]) -> dict[str, MapValue]:
     return merged
 
 
+def runtime_env_vars(
+    runtime_env: dict[str, MapValue] | None,
+    *,
+    occupied: dict[str, MapValue],
+) -> dict[str, str]:
+    """Operator settings from renglo.yaml ``env``. Infrastructure keys already set win."""
+    extra: dict[str, str] = {}
+    for raw_key, value in (runtime_env or {}).items():
+        key = str(raw_key).strip()
+        if not key.isupper() or key in occupied or key in extra:
+            continue
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            extra[key] = text
+    return extra
+
+
 def build_ecs_network_vars(
     *,
     compute_type: str,
@@ -195,6 +214,7 @@ def build_launcher_vars(
     from_email: MapValue = "",
     auth_providers: str = "[]",
     platform_env: dict[str, MapValue] | None = None,
+    runtime_env: dict[str, MapValue] | None = None,
 ) -> dict[str, MapValue]:
     backend_fn = stage_app.get("fn_name", f"{env_name}-backend-{stage}")
     rest_url = normalize_url(stage_app.get("rest_url", ""))
@@ -243,7 +263,8 @@ def build_launcher_vars(
         "ECS_RESULTS_BUCKET": compute_outputs.get("HandlersResultsBucketName", ""),
         **ecs_network,
     }
-    return merge_vars(base, extension_vars, llm_platform_vars(platform_env))
+    merged = merge_vars(base, extension_vars, llm_platform_vars(platform_env))
+    return merge_vars(merged, runtime_env_vars(runtime_env, occupied=merged))
 
 
 def build_deploy_input_vars(
@@ -260,6 +281,7 @@ def build_deploy_input_vars(
     ecs_network: dict[str, MapValue],
     extension_vars: dict[str, MapValue],
     platform_env: dict[str, MapValue] | None = None,
+    runtime_env: dict[str, MapValue] | None = None,
 ) -> dict[str, MapValue]:
     handlers_fn = str(compute_outputs.get("HandlersLambdaFunctionName") or "").strip()
     handlers_ecr_uri = compute_outputs.get("HandlersEcrRepoUri", "")
@@ -271,7 +293,7 @@ def build_deploy_input_vars(
     if isinstance(handlers_ecr_uri, str) and handlers_ecr_uri:
         ecr_image_uri = f"{handlers_ecr_uri}:latest"
 
-    return merge_vars(
+    merged = merge_vars(
         {
             "WL_NAME": env_name,
             "AWS_REGION": aws_region,
@@ -296,6 +318,7 @@ def build_deploy_input_vars(
         extension_vars,
         llm_platform_vars(platform_env),
     )
+    return merge_vars(merged, runtime_env_vars(runtime_env, occupied=merged))
 
 
 def build_platform_vars_envelope(
