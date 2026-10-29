@@ -130,6 +130,8 @@ jobs:
     needs: prepare_matrix
     if: ${{ needs.prepare_matrix.outputs.matrix != '{"include":[]}' }}
     environment: ${{ matrix.deploy_stage }}
+    env:
+      BUILDX_NO_DEFAULT_ATTESTATIONS: "1"
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare_matrix.outputs.matrix) }}
@@ -140,6 +142,27 @@ jobs:
     steps:
       - name: Checkout BOM repo
         uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          set -euo pipefail
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /opt/hostedtoolcache \
+            /usr/local/share/boost \
+            /usr/local/share/powershell \
+            /usr/local/share/chromium \
+            /usr/local/.ghcup \
+            /usr/share/swift \
+            /usr/share/miniconda \
+            /usr/local/share/vcpkg \
+            /usr/lib/jvm \
+            || true
+          sudo apt-get clean
+          docker builder prune -af || true
+          df -h
 
       - name: Setup renglo-ops
         uses: ./.github/actions/setup-renglo-ops
@@ -252,6 +275,10 @@ jobs:
       - name: Build and push peer ECS image
         if: ${{ matrix.handlers_compute == 'ecs' }}
         run: |
+          set -euo pipefail
+          docker builder prune -af || true
+          docker image prune -af || true
+          df -h
           python -m renglo_ops.release peer_packager build \
             --env-name "${{ matrix.id }}" \
             --peer-id "${{ matrix.peer }}" \
