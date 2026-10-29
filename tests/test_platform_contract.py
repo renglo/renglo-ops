@@ -22,8 +22,9 @@ def test_pin_below_0_1_8_demands_nothing() -> None:
     assert pin_meets("0.1.9", "0.1.8") is True
     assert keys_for_pin("0.1.7") == ()
     assert "DYNAMODB_TIMESERIES_TABLE" in keys_for_pin("0.1.8")
-    assert "BEDROCK_MODEL" in keys_for_pin("0.1.8")
-    assert "BEDROCK_CONVERSE_MODEL" in keys_for_pin("0.1.9")
+    assert "BEDROCK_MODELS" in keys_for_pin("0.1.8")
+    assert "BEDROCK_MODEL" not in keys_for_pin("0.1.9")
+    assert "BEDROCK_CONVERSE_MODEL" not in keys_for_pin("0.1.9")
 
 
 def test_highest_pin_wins(tmp_path: Path) -> None:
@@ -46,13 +47,16 @@ def test_highest_pin_wins(tmp_path: Path) -> None:
 def test_llm_platform_vars_keep_model_ids_only() -> None:
     selected = llm_platform_vars(
         {
-            "BEDROCK_MODEL": " anthropic.claude ",
+            "BEDROCK_MODELS": " us.anthropic.claude-haiku-5-5, us.anthropic.claude-sonnet-5-5 ",
+            "BEDROCK_MODEL": "anthropic.claude",
             "BEDROCK_CONVERSE_MODEL": "  ",
             "OPENAI_API_KEY": "sk-test",
             "APP_FE_BASE_URL": "https://console.example.com",
         }
     )
-    assert selected == {"BEDROCK_MODEL": "anthropic.claude"}
+    assert selected == {
+        "BEDROCK_MODELS": "us.anthropic.claude-haiku-5-5, us.anthropic.claude-sonnet-5-5",
+    }
 
 
 def test_launcher_publishes_timeseries_and_llm_ids() -> None:
@@ -67,7 +71,10 @@ def test_launcher_publishes_timeseries_and_llm_ids() -> None:
         compute_outputs={},
         ecs_network={},
         extension_vars={},
-        platform_env={"BEDROCK_MODEL": "anthropic.claude", "OPENAI_API_KEY": "sk-test"},
+        platform_env={
+            "BEDROCK_MODELS": "us.anthropic.claude-haiku-5-5",
+            "OPENAI_API_KEY": "sk-test",
+        },
     )
     launcher = build_launcher_vars(
         stage="production",
@@ -85,11 +92,12 @@ def test_launcher_publishes_timeseries_and_llm_ids() -> None:
         **common,
     )
     assert launcher["DYNAMODB_TIMESERIES_TABLE"] == "acme1_timeseries"
-    assert launcher["BEDROCK_MODEL"] == "anthropic.claude"
+    assert launcher["BEDROCK_MODELS"] == "us.anthropic.claude-haiku-5-5"
     assert "OPENAI_API_KEY" not in launcher
+    assert "BEDROCK_MODEL" not in launcher
     assert "BEDROCK_CONVERSE_MODEL" not in launcher
     assert deploy["DYNAMODB_TIMESERIES_TABLE"] == "acme1_timeseries"
-    assert deploy["BEDROCK_MODEL"] == "anthropic.claude"
+    assert deploy["BEDROCK_MODELS"] == "us.anthropic.claude-haiku-5-5"
 
 
 def test_requirement_sentence_names_the_deploy() -> None:
@@ -102,19 +110,19 @@ def test_requirement_sentence_names_the_deploy() -> None:
     assert "platform-vars/production and platform-vars/staging" in derived
     assert "renglo stack deploy --stack b" in derived
     unset = requirement_sentence(
-        "BEDROCK_MODEL",
+        "BEDROCK_MODELS",
         ("ultrahost",),
         ["production"],
         operator_value="",
     )
-    assert "set env.BEDROCK_MODEL in renglo.yaml" in unset
+    assert "set env.BEDROCK_MODELS in renglo.yaml" in unset
     ready = requirement_sentence(
-        "BEDROCK_MODEL",
+        "BEDROCK_MODELS",
         ("ultrahost",),
         ["production"],
-        operator_value="anthropic.claude",
+        operator_value="us.anthropic.claude-haiku-5-5",
     )
-    assert "set env.BEDROCK_MODEL" not in ready
+    assert "set env.BEDROCK_MODELS" not in ready
     assert ready.endswith("run renglo stack deploy --stack b")
 
 
@@ -123,21 +131,22 @@ def test_env_config_values_skip_comments() -> None:
         [
             "# DYNAMODB_TIMESERIES_TABLE = 'commented'",
             "DYNAMODB_TIMESERIES_TABLE = ''",
-            'BEDROCK_MODEL = "anthropic.claude"',
+            'BEDROCK_MODELS = "us.anthropic.claude-haiku-5-5"',
         ]
     )
     values = env_config_values(text)
     assert values["DYNAMODB_TIMESERIES_TABLE"] == ""
-    assert values["BEDROCK_MODEL"] == "anthropic.claude"
+    assert values["BEDROCK_MODELS"] == "us.anthropic.claude-haiku-5-5"
 
 
 def test_local_render_writes_llm_ids() -> None:
     text = _render_env_config(
-        {"BEDROCK_MODEL": "anthropic.claude", "BEDROCK_CONVERSE_MODEL": ""},
+        {"BEDROCK_MODELS": "us.anthropic.claude-haiku-5-5", "BEDROCK_MODEL": "anthropic.claude"},
         invite_fe_base_url="http://127.0.0.1:5174",
         wss_backend_url="http://127.0.0.1:8080/send_to_client",
         secret_key="s",
         csrf_session_key="c",
     )
-    assert "BEDROCK_MODEL = 'anthropic.claude'" in text
-    assert "BEDROCK_CONVERSE_MODEL = ''" in text
+    assert "BEDROCK_MODELS = 'us.anthropic.claude-haiku-5-5'" in text
+    assert "BEDROCK_MODEL = " not in text
+    assert "BEDROCK_CONVERSE_MODEL = " not in text
