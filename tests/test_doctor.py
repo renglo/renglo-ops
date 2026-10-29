@@ -214,7 +214,7 @@ def test_doctor_warns_when_placed_extension_needs_a_deploy(tmp_path: Path, monke
     bom = _placed_tenant(
         tmp_path,
         ["ultrahost"],
-        {"BEDROCK_MODEL": "anthropic.claude"},
+        {},
     )
     api = tmp_path / "dev" / "renglo-api"
     api.mkdir(parents=True)
@@ -238,8 +238,10 @@ def test_doctor_warns_when_placed_extension_needs_a_deploy(tmp_path: Path, monke
     assert vars_checks and all(c.status == Status.WARN for c in vars_checks)
     assert "DYNAMODB_TIMESERIES_TABLE" in detail
     assert "renglo stack deploy --stack b" in detail
-    assert "set env.BEDROCK_CONVERSE_MODEL" in detail
-    assert "set env.BEDROCK_MODEL " not in detail
+    assert "BEDROCK_MODELS is missing" in detail
+    assert "set env.BEDROCK_MODELS" in detail
+    assert "BEDROCK_MODEL is missing" not in detail
+    assert "BEDROCK_CONVERSE_MODEL is missing" not in detail
     assert table.status == Status.WARN
     assert "renglo stack deploy --stack a" in table.detail
     assert not any(c.label == "Local API config" for c in checks)
@@ -259,8 +261,7 @@ def test_doctor_warns_when_local_config_lags_platform_vars(tmp_path: Path, monke
     def load_vars(_ssm, _env_name, _stage):
         return {
             "DYNAMODB_TIMESERIES_TABLE": "acme1_timeseries",
-            "BEDROCK_MODEL": "anthropic.claude",
-            "BEDROCK_CONVERSE_MODEL": "anthropic.claude",
+            "BEDROCK_MODELS": "us.anthropic.claude-haiku-5-5",
         }
 
     with (
@@ -286,8 +287,7 @@ def test_doctor_accepts_live_platform_vars(tmp_path: Path, monkeypatch) -> None:
         "\n".join(
             [
                 "DYNAMODB_TIMESERIES_TABLE = 'acme1_timeseries'",
-                "BEDROCK_MODEL = 'anthropic.claude'",
-                "BEDROCK_CONVERSE_MODEL = 'anthropic.claude'",
+                "BEDROCK_MODELS = 'us.anthropic.claude-haiku-5-5'",
             ]
         ),
         encoding="utf-8",
@@ -298,8 +298,7 @@ def test_doctor_accepts_live_platform_vars(tmp_path: Path, monkeypatch) -> None:
     def load_vars(_ssm, _env_name, _stage):
         return {
             "DYNAMODB_TIMESERIES_TABLE": "acme1_timeseries",
-            "BEDROCK_MODEL": "anthropic.claude",
-            "BEDROCK_CONVERSE_MODEL": "anthropic.claude",
+            "BEDROCK_MODELS": "us.anthropic.claude-haiku-5-5",
         }
 
     with (

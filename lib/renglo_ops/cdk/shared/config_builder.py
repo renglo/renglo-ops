@@ -119,11 +119,11 @@ def dynamodb_vars(env_name: str) -> dict[str, str]:
 # demand them. Derived keys are written by stack deploy. Operator keys are
 # copied from renglo.yaml env on that same deploy.
 PLATFORM_KEY_ADDITIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("0.1.8", ("DYNAMODB_TIMESERIES_TABLE", "BEDROCK_MODEL", "BEDROCK_CONVERSE_MODEL")),
+    ("0.1.8", ("DYNAMODB_TIMESERIES_TABLE", "BEDROCK_MODELS")),
 )
 
 DERIVED_PLATFORM_KEYS = frozenset({"DYNAMODB_TIMESERIES_TABLE"})
-OPERATOR_PLATFORM_KEYS = ("BEDROCK_MODEL", "BEDROCK_CONVERSE_MODEL")
+OPERATOR_PLATFORM_KEYS = ("BEDROCK_MODELS",)
 
 
 def timeseries_table_name(env_name: str) -> str:
