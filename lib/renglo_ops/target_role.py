@@ -779,7 +779,11 @@ def runtime_policy(
             _allow(
                 "InvokeModels",
                 ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-                [f"arn:aws:bedrock:{region_name}::foundation-model/*"],
+                [
+                    f"arn:aws:bedrock:{region_name}::foundation-model/*",
+                    f"arn:aws:bedrock:*::foundation-model/*",
+                    f"arn:aws:bedrock:{region_name}:{account}:inference-profile/*",
+                ],
             ),
             _allow(
                 "KnowledgeBases",
