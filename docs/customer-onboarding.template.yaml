@@ -421,6 +421,8 @@ Resources:
           - bedrock:InvokeModelWithResponseStream
           Resource:
           - Fn::Sub: arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/*
+          - Fn::Sub: arn:${AWS::Partition}:bedrock:*::foundation-model/*
+          - Fn::Sub: arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*
         - Effect: Allow
           Action:
           - bedrock:*

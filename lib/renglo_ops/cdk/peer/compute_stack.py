@@ -114,16 +114,45 @@ _SKIP_PEER_EXTENSION_ENV = frozenset(
 )
 
 
-def handlers_lambda_environment(
-    env_name: str, extra: dict[str, Any] | None = None
-) -> aws_lambda_.CfnFunction.EnvironmentProperty:
-    """WL_NAME + `{env}_*` DynamoDB tables + peer extension runtime outputs."""
-    variables: dict[str, Any] = dict(peer_base_env(env_name))
+def _operator_env(runtime_env: dict[str, Any] | None) -> dict[str, str]:
+    """Uppercase renglo.yaml env, such as BEDROCK_MODELS. Infrastructure keys stay put."""
+    selected: dict[str, str] = {}
+    for raw_key, value in (runtime_env or {}).items():
+        key = str(raw_key).strip()
+        if not key.isupper() or value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            selected[key] = text
+    return selected
+
+
+def peer_container_env(
+    env_name: str,
+    extra: dict[str, Any] | None = None,
+    operator_env: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Base tables, then tenant env, then extension outputs. Later keys win."""
+    variables: dict[str, str] = dict(peer_base_env(env_name))
+    for key, value in _operator_env(operator_env).items():
+        if key not in variables and key not in _SKIP_PEER_EXTENSION_ENV:
+            variables[key] = value
     for key, value in (extra or {}).items():
         if key in _SKIP_PEER_EXTENSION_ENV or value is None or value == "":
             continue
-        variables[str(key)] = value
-    return aws_lambda_.CfnFunction.EnvironmentProperty(variables=variables)
+        variables[str(key)] = str(value)
+    return variables
+
+
+def handlers_lambda_environment(
+    env_name: str,
+    extra: dict[str, Any] | None = None,
+    operator_env: dict[str, Any] | None = None,
+) -> aws_lambda_.CfnFunction.EnvironmentProperty:
+    """WL_NAME + `{env}_*` DynamoDB tables + tenant env + peer extension runtime outputs."""
+    return aws_lambda_.CfnFunction.EnvironmentProperty(
+        variables=peer_container_env(env_name, extra, operator_env)
+    )
 
 
 def handlers_policy_name(env_name: str, peer_id: str | None = None) -> str:
@@ -467,6 +496,7 @@ class ComputeStack(Construct):
         github_handlers_repo_id: str | None = None,
         enable_staging: bool = True,
         tenant_policy: iam.IManagedPolicy | None = None,
+        runtime_env: dict[str, Any] | None = None,
         handlers_network_params: dict[str, Any] | None = None,
         peer_id: str | None = None,
         package_registry: dict | None = None,
@@ -477,6 +507,7 @@ class ComputeStack(Construct):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
         self._namespace = namespace
+        self._runtime_env = dict(runtime_env or {})
 
         self._peer_id = (peer_id or "").strip() or None
         self._package_registry = package_registry
@@ -493,6 +524,13 @@ class ComputeStack(Construct):
             "ImportedTenantPolicy",
             managed_policy_name=f"{env_name}_tt_policy",
         )
+        # Hub role already has this. Peer tasks call the same Converse models,
+        # including account inference profiles (us.anthropic.*).
+        ai_policy = iam.ManagedPolicy.from_managed_policy_name(
+            self,
+            "ImportedPlatformAiPolicy",
+            managed_policy_name=f"{env_name}_ai_tt_policy",
+        )
         results_bucket_name = handlers_results_bucket_name(env_name, aws_account, peer_id)
 
         if compute_type == "lambda_only":
@@ -501,6 +539,7 @@ class ComputeStack(Construct):
                 aws_account,
                 aws_region,
                 tt_policy=tt_policy,
+                ai_policy=ai_policy,
                 results_bucket_name=results_bucket_name,
             )
             self._provision_handlers_oidc(
@@ -612,6 +651,7 @@ class ComputeStack(Construct):
         )
         task_role.add_managed_policy(handlers_policy)
         task_role.add_managed_policy(tt_policy)
+        task_role.add_managed_policy(ai_policy)
         task_role.attach_inline_policy(
             iam.Policy(
                 self,
@@ -639,6 +679,7 @@ class ComputeStack(Construct):
                 ),
                 handlers_policy,
                 tt_policy,
+                ai_policy,
             ],
             description=DESCRIPTION,
         )
@@ -931,7 +972,11 @@ class ComputeStack(Construct):
                 timeout=900,
                 memory_size=512,
                 description=DESCRIPTION,
-                environment=handlers_lambda_environment(env_name, extra_env),
+                environment=handlers_lambda_environment(
+                    env_name,
+                    extra_env,
+                    getattr(self, "_runtime_env", None),
+                ),
             )
             fn.node.add_dependency(role)
             fn.node.add_dependency(log_group)
@@ -957,6 +1002,7 @@ class ComputeStack(Construct):
         aws_region: str,
         *,
         tt_policy: iam.IManagedPolicy,
+        ai_policy: iam.IManagedPolicy,
         results_bucket_name: str,
     ) -> None:
         """Lambda-only mode: handlers IAM role + Lambda seed + log group without ECS infra."""
@@ -986,6 +1032,7 @@ class ComputeStack(Construct):
                 ),
                 handlers_policy,
                 tt_policy,
+                ai_policy,
             ],
             description=DESCRIPTION,
         )
@@ -1047,14 +1094,11 @@ class ComputeStack(Construct):
             "handler",
             image=ecs.ContainerImage.from_registry(ecr_uri),
             essential=True,
-            environment={
-                **peer_base_env(env_name),
-                **{
-                    k: v
-                    for k, v in (getattr(self, "_extension_runtime_env", None) or {}).items()
-                    if k not in _SKIP_PEER_EXTENSION_ENV and v is not None and v != ""
-                },
-            },
+            environment=peer_container_env(
+                env_name,
+                getattr(self, "_extension_runtime_env", None),
+                getattr(self, "_runtime_env", None),
+            ),
             logging=ecs.LogDrivers.aws_logs(
                 stream_prefix="ecs",
                 log_group=log_group,

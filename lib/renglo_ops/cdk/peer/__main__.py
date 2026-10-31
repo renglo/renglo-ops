@@ -64,6 +64,7 @@ def main() -> None:
             package_registry=cfg["package_registry"],
             workspace=_workspace(),
             namespace=tenant.namespace,
+            runtime_env=dict(tenant.env),
         )
     app.synth()
 
@@ -76,7 +77,7 @@ def _workspace() -> Path:
 
 
 class HandlersPeerStack:
-    def __init__(self, scope, stack_id, *, env_name, peer, github_handlers_repo, aws_account, aws_region, enable_staging, package_registry, workspace, github_handlers_owner_id=None, github_handlers_repo_id=None, namespace="", **kwargs):
+    def __init__(self, scope, stack_id, *, env_name, peer, github_handlers_repo, aws_account, aws_region, enable_staging, package_registry, workspace, github_handlers_owner_id=None, github_handlers_repo_id=None, namespace="", runtime_env=None, **kwargs):
         from aws_cdk import Stack
         from aws_cdk import aws_iam as iam
         from compute_stack import ComputeStack  # type: ignore
@@ -111,6 +112,7 @@ class HandlersPeerStack:
             extension_handles=list(peer.get("extensions") or []),
             extensions_root=workspace,
             namespace=namespace,
+            runtime_env=dict(runtime_env or {}),
         )
 
 
