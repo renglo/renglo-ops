@@ -1,15 +1,16 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Onboarding stack for one environment. It creates role renglo-deploy,
   the execution policy used as that role's permissions boundary, the runtime policy
-  used as the boundary on application roles, and the deploy policy attached to renglo-deploy.
-  Neither policy is AdministratorAccess. CloudFormation also receives the role-guard
-  policy, so it can create an application role only with the runtime boundary and
-  a toolkit role only with the execution boundary. Upload this stack in the target
-  account and do not also create those policies by hand. You do not install or run
-  CDK. The installer assumes renglo-deploy with the external id, bootstraps a toolkit
-  stack named CDKToolkit-{EnvironmentId}, and deploys the application stacks. Each
-  environment has its own toolkit stack, so several environments can share one account
-  and region.
+  used as the boundary on application roles, the GitHub policy used as the boundary
+  on the Actions deploy roles, and the deploy policy attached to renglo-deploy. Neither
+  policy is AdministratorAccess. CloudFormation also receives the role-guard policy,
+  so it can create an application role only with the runtime boundary, a GitHub deploy
+  role only with the GitHub boundary, and a toolkit role only with the execution boundary.
+  Upload this stack in the target account and do not also create those policies by
+  hand. You do not install or run CDK. The installer assumes renglo-deploy with the
+  external id, bootstraps a toolkit stack named CDKToolkit-{EnvironmentId}, and deploys
+  the application stacks. Each environment has its own toolkit stack, so several environments
+  can share one account and region.
 Parameters:
   VendorPrincipalArn:
     Type: String
@@ -63,8 +64,7 @@ Resources:
           - cloudformation:*
           Resource:
           - Fn::Sub: arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/CDKToolkit-${EnvironmentId}/*
-          - Fn::Sub: arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${EnvironmentId}-stack-a/*
-          - Fn::Sub: arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${EnvironmentId}-stack-b/*
+          - Fn::Sub: arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${EnvironmentId}-*
         - Effect: Allow
           Action:
           - s3:*
@@ -95,8 +95,9 @@ Resources:
           - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${EnvironmentId}-*
           - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${EnvironmentId}_*
           - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/cdk-${EnvironmentId}-*-role-${AWS::AccountId}-${AWS::Region}
-          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${EnvironmentId}_tt_policy
-          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${EnvironmentId}_ai_tt_policy
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/GitHubActionsDeployRole-${EnvironmentId}-*
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/renglo-installer
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${EnvironmentId}_*
         - Effect: Allow
           Action:
           - iam:CreateServiceLinkedRole
@@ -146,6 +147,12 @@ Resources:
           - secretsmanager:*
           Resource:
           - Fn::Sub: arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${EnvironmentId}/*
+          - Fn::Sub: arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:events!connection/${EnvironmentId}-*
+        - Effect: Allow
+          Action:
+          - secretsmanager:GetRandomPassword
+          Resource:
+          - '*'
         - Effect: Allow
           Action:
           - events:*
@@ -193,13 +200,21 @@ Resources:
                 Fn::Sub: ${EnvironmentId}
         - Effect: Allow
           Action:
+          - apigateway:*
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}::/tags/*
+        - Effect: Allow
+          Action:
           - amplify:CreateApp
+          - amplify:TagResource
+          - amplify:UntagResource
           Resource:
           - '*'
-          Condition:
-            StringEquals:
-              aws:RequestTag/renglo:env:
-                Fn::Sub: ${EnvironmentId}
+        - Effect: Allow
+          Action:
+          - amplify:*Branch
+          Resource:
+          - '*'
         - Effect: Allow
           Action:
           - amplify:*
@@ -211,22 +226,14 @@ Resources:
                 Fn::Sub: ${EnvironmentId}
         - Effect: Allow
           Action:
-          - bedrock:CreateKnowledgeBase
+          - states:*
           Resource:
           - '*'
-          Condition:
-            StringEquals:
-              aws:RequestTag/renglo:env:
-                Fn::Sub: ${EnvironmentId}
         - Effect: Allow
           Action:
           - bedrock:*
           Resource:
-          - Fn::Sub: arn:${AWS::Partition}:bedrock:${AWS::Region}:${AWS::AccountId}:knowledge-base/*
-          Condition:
-            StringEquals:
-              aws:ResourceTag/renglo:env:
-                Fn::Sub: ${EnvironmentId}
+          - '*'
         - Effect: Allow
           Action:
           - s3vectors:*
@@ -299,17 +306,18 @@ Resources:
           - logs:*
           Resource:
           - Fn::Sub: arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentId}*
-          - Fn::Sub: arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentId}*:*
           - Fn::Sub: arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${EnvironmentId}*
-          - Fn::Sub: arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/codebuild/${EnvironmentId}*:*
+        - Effect: Allow
+          Action:
+          - states:StartExecution
+          - states:DescribeExecution
+          - states:StopExecution
+          Resource:
+          - '*'
         - Effect: Allow
           Action:
           - s3:*
           Resource:
-          - Fn::Sub: arn:${AWS::Partition}:s3:::${EnvironmentId}-${AWS::AccountId}-${AWS::Region}
-          - Fn::Sub: arn:${AWS::Partition}:s3:::${EnvironmentId}-${AWS::AccountId}-${AWS::Region}/*
-          - Fn::Sub: arn:${AWS::Partition}:s3:::${EnvironmentId}-rag-docs-${AWS::AccountId}
-          - Fn::Sub: arn:${AWS::Partition}:s3:::${EnvironmentId}-rag-docs-${AWS::AccountId}/*
           - Fn::Sub: arn:${AWS::Partition}:s3:::cdk-${EnvironmentId}-assets-${AWS::AccountId}-${AWS::Region}
           - Fn::Sub: arn:${AWS::Partition}:s3:::cdk-${EnvironmentId}-assets-${AWS::AccountId}-${AWS::Region}/*
           - Fn::Sub: arn:${AWS::Partition}:s3:::${EnvironmentId}-*
@@ -341,6 +349,8 @@ Resources:
         - Effect: Allow
           Action:
           - ecr:GetAuthorizationToken
+          - ecr-public:GetAuthorizationToken
+          - sts:GetServiceBearerToken
           Resource:
           - '*'
         - Effect: Allow
@@ -503,13 +513,135 @@ Resources:
           - iam:DeleteRolePermissionsBoundary
           - iam:DeleteUserPermissionsBoundary
           Resource: '*'
+  GitHubPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName:
+        Fn::Sub: ${EnvironmentId}-github
+      Description: Permissions boundary for the GitHub Actions deploy roles.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: CallerIdentity
+          Effect: Allow
+          Action:
+          - sts:GetCallerIdentity
+          Resource:
+          - '*'
+        - Sid: EcrPushPull
+          Effect: Allow
+          Action:
+          - ecr:BatchGetImage
+          - ecr:BatchCheckLayerAvailability
+          - ecr:InitiateLayerUpload
+          - ecr:UploadLayerPart
+          - ecr:CompleteLayerUpload
+          - ecr:PutImage
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${EnvironmentId}_backend
+        - Sid: EcrAuthToken
+          Effect: Allow
+          Action:
+          - ecr:GetAuthorizationToken
+          Resource:
+          - '*'
+        - Sid: BackendLambdaDeploy
+          Effect: Allow
+          Action:
+          - lambda:CreateFunction
+          - lambda:GetFunction
+          - lambda:GetFunctionConfiguration
+          - lambda:UpdateFunctionCode
+          - lambda:UpdateFunctionConfiguration
+          - lambda:PublishVersion
+          - lambda:CreateAlias
+          - lambda:UpdateAlias
+          - lambda:GetAlias
+          - lambda:AddPermission
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${EnvironmentId}-backend-*
+          - Fn::Sub: arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${EnvironmentId}-backend-*:*
+        - Sid: CodeDeployLambdaRelease
+          Effect: Allow
+          Action:
+          - codedeploy:CreateDeployment
+          - codedeploy:RegisterApplicationRevision
+          - codedeploy:GetDeployment
+          - codedeploy:GetDeploymentConfig
+          - codedeploy:GetDeploymentGroup
+          - codedeploy:GetApplication
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:application:${EnvironmentId}-backend-codedeploy
+          - Fn::Sub: arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentgroup:${EnvironmentId}-backend-codedeploy/*
+          - Fn::Sub: arn:${AWS::Partition}:codedeploy:${AWS::Region}:${AWS::AccountId}:deploymentconfig:*
+        - Sid: PassExecutionRole
+          Effect: Allow
+          Action:
+          - iam:PassRole
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${EnvironmentId}_tt_role
+          Condition:
+            StringEquals:
+              iam:PassedToService: lambda.amazonaws.com
+        - Sid: CloudFormationDescribe
+          Effect: Allow
+          Action:
+          - cloudformation:DescribeStacks
+          Resource:
+          - '*'
+        - Sid: SsmReadPlatformVars
+          Effect: Allow
+          Action:
+          - ssm:GetParameter
+          - ssm:GetParameters
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${EnvironmentId}/bootstrap/*
+        - Sid: AmplifyConsoleDeploy
+          Effect: Allow
+          Action:
+          - amplify:CreateDeployment
+          - amplify:StartDeployment
+          - amplify:GetJob
+          - amplify:StopJob
+          - amplify:GetApp
+          - amplify:GetBranch
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:amplify:${AWS::Region}:${AWS::AccountId}:apps/*
+        - Sid: CodeArtifactRead
+          Effect: Allow
+          Action:
+          - codeartifact:DescribeDomain
+          - codeartifact:GetAuthorizationToken
+          - codeartifact:GetRepositoryEndpoint
+          - codeartifact:ReadFromRepository
+          - codeartifact:DescribeRepository
+          - codeartifact:ListPackages
+          - codeartifact:ListPackageVersions
+          - codeartifact:DescribePackageVersion
+          - codeartifact:GetPackageVersionAsset
+          - codeartifact:GetPackageVersionReadme
+          - codeartifact:ListPackageVersionAssets
+          - codeartifact:ListPackageVersionDependencies
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:codeartifact:${AWS::Region}:*:domain/*
+          - Fn::Sub: arn:${AWS::Partition}:codeartifact:${AWS::Region}:*:repository/*/*
+          - Fn::Sub: arn:${AWS::Partition}:codeartifact:${AWS::Region}:*:package/*/*/*/*
+        - Sid: CodeArtifactBearerToken
+          Effect: Allow
+          Action:
+          - sts:GetServiceBearerToken
+          Resource:
+          - '*'
+          Condition:
+            StringEquals:
+              sts:AWSServiceName: codeartifact.amazonaws.com
   RoleGuardPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
       ManagedPolicyName:
         Fn::Sub: ${EnvironmentId}-role-guard
-      Description: Requires the runtime boundary on application roles and the execution
-        boundary on toolkit roles.
+      Description: Requires the runtime boundary on application roles, the GitHub
+        boundary on deploy roles, and the execution boundary on toolkit roles.
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -521,7 +653,6 @@ Resources:
           Resource:
           - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${EnvironmentId}-*
           - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${EnvironmentId}_*
-          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/GitHubActionsDeployRole-${EnvironmentId}-*
           Condition:
             'Null':
               iam:PermissionsBoundary: 'true'
@@ -533,11 +664,31 @@ Resources:
           Resource:
           - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${EnvironmentId}-*
           - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${EnvironmentId}_*
-          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/GitHubActionsDeployRole-${EnvironmentId}-*
           Condition:
             StringNotEquals:
               iam:PermissionsBoundary:
                 Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${EnvironmentId}-runtime
+        - Sid: DenyGitHubRoleWithoutBoundary
+          Effect: Deny
+          Action:
+          - iam:CreateRole
+          - iam:PutRolePermissionsBoundary
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/GitHubActionsDeployRole-${EnvironmentId}-*
+          Condition:
+            'Null':
+              iam:PermissionsBoundary: 'true'
+        - Sid: DenyGitHubRoleWrongBoundary
+          Effect: Deny
+          Action:
+          - iam:CreateRole
+          - iam:PutRolePermissionsBoundary
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/GitHubActionsDeployRole-${EnvironmentId}-*
+          Condition:
+            StringNotEquals:
+              iam:PermissionsBoundary:
+                Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${EnvironmentId}-github
         - Sid: DenyToolkitRoleWithoutBoundary
           Effect: Deny
           Action:
@@ -569,6 +720,7 @@ Resources:
           Resource:
           - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${EnvironmentId}-cfn-exec
           - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${EnvironmentId}-runtime
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${EnvironmentId}-github
           - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${EnvironmentId}-role-guard
         - Sid: DenyProtectedPolicyDetach
           Effect: Deny
@@ -579,6 +731,7 @@ Resources:
               iam:PolicyARN:
               - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${EnvironmentId}-cfn-exec
               - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${EnvironmentId}-runtime
+              - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${EnvironmentId}-github
               - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${EnvironmentId}-role-guard
   DeployPolicy:
     Type: AWS::IAM::ManagedPolicy
@@ -817,6 +970,9 @@ Outputs:
   RuntimePolicyArn:
     Value:
       Ref: RuntimePolicy
+  GitHubPolicyArn:
+    Value:
+      Ref: GitHubPolicy
   RoleGuardPolicyArn:
     Value:
       Ref: RoleGuardPolicy

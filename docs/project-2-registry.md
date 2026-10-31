@@ -226,29 +226,19 @@ In GitHub, on **the product repo** → Settings → Secrets and variables → Ac
 
 
 
-### Developer: add the workflow file to the repository
+### Developer: sync the publish workflows
 
-The workflow file goes at the **root** of the repository. It goes in /.github/workflows.  Its name is always publish-extension.yml . 
+Canonical publish files ship inside `renglo-ops`. Copy them with the sync commands below, run from the product workspace (the directory that holds `.renglo/local.yaml`). Each command finds the matching checkouts, writes the bundled files, and leaves package names and versions in place. `--dry-run` prints the paths and does not write them. The matching `check` lists drift before you sync. After either sync, commit the listed files in that product repository so GitHub Actions sees them. Run the same commands again after a newer `renglo-ops`.
 
-```text
-<repo-root>/
-  .github/
-    workflows/
-      publish-extension.yml    ← copy here
-  
-```
-
-Copy the sample from **renglo-ops**:
+**Extensions.** `renglo extension workflows sync` looks under `extensions/` for a directory that has `package/pyproject.toml`, `ui/package.json`, or both. It writes `.github/workflows/publish-extension.yml` and removes a leftover `.github/workflows/publish.yml`.
 
 ```bash
-# In any clone of the product repo — location on disk does not matter
-mkdir -p .github/workflows
-cp /path/to/renglo-ops/samples/publish-extension.yml .github/workflows/publish-extension.yml
+renglo extension workflows check
+renglo extension workflows sync --dry-run
+renglo extension workflows sync
 ```
 
-Canonical file: `[samples/publish-extension.yml](../samples/publish-extension.yml)` in this repository (`[renglo/renglo-ops` on GitHub]([https://github.com/renglo/renglo-ops/blob/main/samples/publish-extension.yml](https://github.com/renglo/renglo-ops/blob/main/samples/publish-extension.yml))).
-
-It runs on pushed `v*` tags and on manual dispatch, and publishes whichever trees exist in the repository:
+That workflow runs on pushed `v*` tags and on manual dispatch, and publishes whichever trees exist:
 
 
 | Tree                     | Result                         |
@@ -258,6 +248,16 @@ It runs on pushed `v*` tags and on manual dispatch, and publishes whichever tree
 
 
 A missing tree skips that job; one tag can publish both. Repo-root `blueprints/*.json` are copied into the Python package before the build.
+
+**White-label.** `renglo wl sync` looks under `dev/` and at the workspace root for a directory named `wl` or ending in `-wl`. It writes `.github/workflows/publish-python.yml`, `.github/workflows/publish-npm.yml`, and `wl_build.py`. When `[tool.renglo] platform` or `renglo.platform` is missing, it fills that pin from `platform` in `renglo.yaml`.
+
+```bash
+renglo wl check
+renglo wl sync --dry-run
+renglo wl sync
+```
+
+Those workflows also run on pushed `v*` tags and on manual dispatch, and they use the same three Actions variables. `publish-python.yml` builds the wheel, staging `locales/` and `assets/` through `wl_build.py`. `publish-npm.yml` publishes the npm package.
 
 ### Optional: also publish to public PyPI or npmjs
 

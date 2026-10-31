@@ -339,8 +339,26 @@ def role_guard_policy_name(env_name: str) -> str:
     return f"{str(env_name or '').strip()}-role-guard"
 
 
+def github_boundary_policy_name(env_name: str) -> str:
+    return f"{str(env_name or '').strip()}-github"
+
+
+AMPLIFY_CONSOLE_DEPLOY_ACTIONS = [
+    "amplify:CreateDeployment",
+    "amplify:StartDeployment",
+    "amplify:GetJob",
+    "amplify:StopJob",
+    "amplify:GetApp",
+    "amplify:GetBranch",
+]
+
+
 def runtime_policy_arn(account_id: str, env_name: str) -> str:
     return f"arn:aws:iam::{str(account_id or '').strip()}:policy/{runtime_policy_name(env_name)}"
+
+
+def github_boundary_policy_arn(account_id: str, env_name: str) -> str:
+    return f"arn:aws:iam::{str(account_id or '').strip()}:policy/{github_boundary_policy_name(env_name)}"
 
 
 def execution_policy_arn(account_id: str, env_name: str) -> str:
@@ -1093,6 +1111,123 @@ def execution_policy(
     return {"Version": "2012-10-17", "Statement": statements}
 
 
+def github_boundary_policy(
+    *,
+    env_name: str,
+    account_id: str,
+    region: str,
+) -> dict[str, Any]:
+    """Ceiling for the GitHub Actions deploy roles.
+
+    A role has one permissions boundary. The runtime boundary keeps ``amplify:*``
+    behind the environment tag, and Amplify deployments are not tagged. These
+    roles wear this policy instead. It allows the calls in their inline policy,
+    including the console deploy actions, and nothing else.
+    """
+    name, account, region_name = _scope(env_name, account_id, region)
+    if not uses_named_qualifier(name):
+        raise RengloOpsError("a GitHub boundary is only generated when the env name is the CDK qualifier")
+    return {
+        "Version": "2012-10-17",
+        "Statement": [
+            _allow("CallerIdentity", ["sts:GetCallerIdentity"], ["*"]),
+            _allow(
+                "EcrPushPull",
+                [
+                    "ecr:BatchGetImage",
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:InitiateLayerUpload",
+                    "ecr:UploadLayerPart",
+                    "ecr:CompleteLayerUpload",
+                    "ecr:PutImage",
+                ],
+                [f"arn:aws:ecr:{region_name}:{account}:repository/{name}_backend"],
+            ),
+            _allow("EcrAuthToken", ["ecr:GetAuthorizationToken"], ["*"]),
+            _allow(
+                "BackendLambdaDeploy",
+                [
+                    "lambda:CreateFunction",
+                    "lambda:GetFunction",
+                    "lambda:GetFunctionConfiguration",
+                    "lambda:UpdateFunctionCode",
+                    "lambda:UpdateFunctionConfiguration",
+                    "lambda:PublishVersion",
+                    "lambda:CreateAlias",
+                    "lambda:UpdateAlias",
+                    "lambda:GetAlias",
+                    "lambda:AddPermission",
+                ],
+                [
+                    f"arn:aws:lambda:{region_name}:{account}:function:{name}-backend-*",
+                    f"arn:aws:lambda:{region_name}:{account}:function:{name}-backend-*:*",
+                ],
+            ),
+            _allow(
+                "CodeDeployLambdaRelease",
+                [
+                    "codedeploy:CreateDeployment",
+                    "codedeploy:RegisterApplicationRevision",
+                    "codedeploy:GetDeployment",
+                    "codedeploy:GetDeploymentConfig",
+                    "codedeploy:GetDeploymentGroup",
+                    "codedeploy:GetApplication",
+                ],
+                [
+                    f"arn:aws:codedeploy:{region_name}:{account}:application:{name}-backend-codedeploy",
+                    f"arn:aws:codedeploy:{region_name}:{account}:deploymentgroup:{name}-backend-codedeploy/*",
+                    f"arn:aws:codedeploy:{region_name}:{account}:deploymentconfig:*",
+                ],
+            ),
+            _allow(
+                "PassExecutionRole",
+                ["iam:PassRole"],
+                [f"arn:aws:iam::{account}:role/{name}_tt_role"],
+                {"StringEquals": {"iam:PassedToService": "lambda.amazonaws.com"}},
+            ),
+            _allow("CloudFormationDescribe", ["cloudformation:DescribeStacks"], ["*"]),
+            _allow(
+                "SsmReadPlatformVars",
+                ["ssm:GetParameter", "ssm:GetParameters"],
+                [f"arn:aws:ssm:{region_name}:{account}:parameter/{name}/bootstrap/*"],
+            ),
+            _allow(
+                "AmplifyConsoleDeploy",
+                list(AMPLIFY_CONSOLE_DEPLOY_ACTIONS),
+                [f"arn:aws:amplify:{region_name}:{account}:apps/*"],
+            ),
+            _allow(
+                "CodeArtifactRead",
+                [
+                    "codeartifact:DescribeDomain",
+                    "codeartifact:GetAuthorizationToken",
+                    "codeartifact:GetRepositoryEndpoint",
+                    "codeartifact:ReadFromRepository",
+                    "codeartifact:DescribeRepository",
+                    "codeartifact:ListPackages",
+                    "codeartifact:ListPackageVersions",
+                    "codeartifact:DescribePackageVersion",
+                    "codeartifact:GetPackageVersionAsset",
+                    "codeartifact:GetPackageVersionReadme",
+                    "codeartifact:ListPackageVersionAssets",
+                    "codeartifact:ListPackageVersionDependencies",
+                ],
+                [
+                    f"arn:aws:codeartifact:{region_name}:*:domain/*",
+                    f"arn:aws:codeartifact:{region_name}:*:repository/*/*",
+                    f"arn:aws:codeartifact:{region_name}:*:package/*/*/*/*",
+                ],
+            ),
+            _allow(
+                "CodeArtifactBearerToken",
+                ["sts:GetServiceBearerToken"],
+                ["*"],
+                {"StringEquals": {"sts:AWSServiceName": "codeartifact.amazonaws.com"}},
+            ),
+        ],
+    }
+
+
 def role_guard_policy(
     *,
     env_name: str,
@@ -1104,7 +1239,8 @@ def role_guard_policy(
     The execution policy is also a permissions boundary, so it cannot hold another
     boundary's rules without exceeding the IAM size limit. This policy is identity
     only. Creating an application role requires the runtime boundary. Creating a
-    toolkit role requires the execution boundary.
+    GitHub deploy role requires the GitHub boundary. Creating a toolkit role
+    requires the execution boundary.
     """
     name, account, region_name = _scope(env_name, account_id, region)
     if not uses_named_qualifier(name):
@@ -1112,6 +1248,8 @@ def role_guard_policy(
     app_roles = [
         f"arn:aws:iam::{account}:role/{name}-*",
         f"arn:aws:iam::{account}:role/{name}_*",
+    ]
+    github_roles = [
         f"arn:aws:iam::{account}:role/GitHubActionsDeployRole-{name}-*",
     ]
     toolkit_roles = [
@@ -1120,12 +1258,14 @@ def role_guard_policy(
     protected = [
         execution_policy_arn(account, name),
         runtime_policy_arn(account, name),
+        github_boundary_policy_arn(account, name),
         f"arn:aws:iam::{account}:policy/{name}-role-guard",
     ]
     return {
         "Version": "2012-10-17",
         "Statement": [
             *_role_boundary_denies("ApplicationRole", app_roles, runtime_policy_arn(account, name)),
+            *_role_boundary_denies("GitHubRole", github_roles, github_boundary_policy_arn(account, name)),
             *_role_boundary_denies("ToolkitRole", toolkit_roles, execution_policy_arn(account, name)),
             {
                 "Sid": "DenyProtectedPolicyChange",
@@ -1645,6 +1785,7 @@ def onboarding_template(namespace: str | None = None) -> dict[str, Any]:
         execution_policy(**common, email_from=_TEMPLATE_EMAIL, email_identity="email", namespace=slug)
     )
     runtime = _cfn_sub(runtime_policy(**common, email_from=_TEMPLATE_EMAIL, namespace=slug))
+    github = _cfn_sub(github_boundary_policy(**common))
     guard = _cfn_sub(role_guard_policy(**common))
     deploy = _cfn_sub(_deploy_role_policy(**common))
     return {
@@ -1653,9 +1794,11 @@ def onboarding_template(namespace: str | None = None) -> dict[str, Any]:
             "Onboarding stack for one environment. "
             f"It creates role {deploy_name}, the execution policy used as that role's permissions boundary, "
             "the runtime policy used as the boundary on application roles, "
+            "the GitHub policy used as the boundary on the Actions deploy roles, "
             f"and the deploy policy attached to {deploy_name}. "
             "Neither policy is AdministratorAccess. "
-            "CloudFormation also receives the role-guard policy, so it can create an application role only with the runtime boundary "
+            "CloudFormation also receives the role-guard policy, so it can create an application role only with the runtime boundary, "
+            "a GitHub deploy role only with the GitHub boundary, "
             "and a toolkit role only with the execution boundary. "
             "Upload this stack in the target account and do not also create those policies by hand. "
             "You do not install or run CDK. "
@@ -1706,11 +1849,19 @@ def onboarding_template(namespace: str | None = None) -> dict[str, Any]:
                     "PolicyDocument": runtime,
                 },
             },
+            "GitHubPolicy": {
+                "Type": "AWS::IAM::ManagedPolicy",
+                "Properties": {
+                    "ManagedPolicyName": {"Fn::Sub": "${EnvironmentId}-github"},
+                    "Description": "Permissions boundary for the GitHub Actions deploy roles.",
+                    "PolicyDocument": github,
+                },
+            },
             "RoleGuardPolicy": {
                 "Type": "AWS::IAM::ManagedPolicy",
                 "Properties": {
                     "ManagedPolicyName": {"Fn::Sub": "${EnvironmentId}-role-guard"},
-                    "Description": "Requires the runtime boundary on application roles and the execution boundary on toolkit roles.",
+                    "Description": "Requires the runtime boundary on application roles, the GitHub boundary on deploy roles, and the execution boundary on toolkit roles.",
                     "PolicyDocument": guard,
                 },
             },
@@ -1749,6 +1900,7 @@ def onboarding_template(namespace: str | None = None) -> dict[str, Any]:
             "VendorDeployRoleArn": {"Value": {"Fn::GetAtt": ["DeployRole", "Arn"]}},
             "ExecutionPolicyArn": {"Value": {"Ref": "ExecutionPolicy"}},
             "RuntimePolicyArn": {"Value": {"Ref": "RuntimePolicy"}},
+            "GitHubPolicyArn": {"Value": {"Ref": "GitHubPolicy"}},
             "RoleGuardPolicyArn": {"Value": {"Ref": "RoleGuardPolicy"}},
             "DeployPolicyArn": {"Value": {"Ref": "DeployPolicy"}},
         },
@@ -1810,6 +1962,10 @@ def bootstrap_policy_specs(
                 namespace=namespace,
             ),
         ),
+        (
+            github_boundary_policy_name(env_name),
+            github_boundary_policy(env_name=env_name, account_id=account_id, region=region),
+        ),
     ]
 
 
@@ -1817,9 +1973,11 @@ def _policy_description(name: str) -> str:
     if name.endswith("-cfn-exec"):
         return "CloudFormation execution policy and permissions boundary for toolkit roles."
     if name.endswith("-role-guard"):
-        return "Requires the runtime boundary on application roles and the execution boundary on toolkit roles."
+        return "Requires the runtime boundary on application roles, the GitHub boundary on deploy roles, and the execution boundary on toolkit roles."
     if name.endswith("-runtime"):
         return "Permissions boundary for application roles."
+    if name.endswith("-github"):
+        return "Permissions boundary for the GitHub Actions deploy roles."
     return "Renglo environment policy."
 
 

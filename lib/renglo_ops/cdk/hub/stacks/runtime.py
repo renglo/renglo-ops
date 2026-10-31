@@ -20,7 +20,14 @@ from aws_cdk import custom_resources as cr
 from constructs import Construct
 
 from lib.github_oidc import github_environment_sub_claims
-from renglo_ops.target_role import deploy_role_name, installer_permissions_policy, installer_role_name
+from renglo_ops.target_role import (
+    AMPLIFY_CONSOLE_DEPLOY_ACTIONS,
+    deploy_role_name,
+    github_boundary_policy_arn,
+    installer_permissions_policy,
+    installer_role_name,
+    uses_named_qualifier,
+)
 from lib.package_registry import codeartifact_owners
 from platform_defaults import (
     backend_ecr_repository_name,
@@ -456,14 +463,7 @@ def _deploy_permissions_policy(
         statements.append(
             iam.PolicyStatement(
                 sid="AmplifyConsoleDeploy",
-                actions=[
-                    "amplify:CreateDeployment",
-                    "amplify:StartDeployment",
-                    "amplify:GetJob",
-                    "amplify:StopJob",
-                    "amplify:GetApp",
-                    "amplify:GetBranch",
-                ],
+                actions=list(AMPLIFY_CONSOLE_DEPLOY_ACTIONS),
                 resources=[f"arn:aws:amplify:{region}:{account}:apps/{amplify_app_id}/*"],
             )
         )
@@ -717,6 +717,14 @@ class RuntimeStack(Construct):
             "GitHubOidcProvider",
             open_id_connect_provider_arn=oidc_provider_arn,
         )
+        github_boundary = None
+        if uses_named_qualifier(env_name):
+            github_boundary = iam.ManagedPolicy.from_managed_policy_arn(
+                self,
+                "GitHubPermissionsBoundary",
+                github_boundary_policy_arn(aws_account, env_name),
+            )
+
         def _oidc_role(stage: str) -> iam.Role:
             policy_doc = _deploy_permissions_policy(
                 env_name,
@@ -726,7 +734,7 @@ class RuntimeStack(Construct):
                 amplify_app_id=amplify_app_id,
                 package_registry=package_registry,
             )
-            return iam.Role(
+            role = iam.Role(
                 self,
                 f"OidcDeployRole{stage.capitalize()}",
                 role_name=f"GitHubActionsDeployRole-{env_name}-{stage}",
@@ -751,6 +759,9 @@ class RuntimeStack(Construct):
                 },
                 description=DESCRIPTION,
             )
+            if github_boundary is not None:
+                iam.PermissionsBoundary.of(role).apply(github_boundary)
+            return role
 
         prod_oidc_role = _oidc_role("production")
         staging_oidc_role = _oidc_role("staging") if enable_staging else None
