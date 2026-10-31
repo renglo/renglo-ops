@@ -415,14 +415,30 @@ def _run_cdk(
 
 def _cmd_stack(args: argparse.Namespace) -> int:
     from renglo.operate import hub_stack_name, parse_stacks
+    from renglo_ops.target_role import ensure_bootstrap_policies
 
     tenant = _tenant_from_env()
     profile, region = _profile_region()
     region = (getattr(args, "region", "") or region or tenant.primary_account().region).strip()
     names = [hub_stack_name(tenant.name, part) for part in parse_stacks(args.stack)]
+    chosen = _require_named_aws_profile(args.profile or profile, verb="deploy")
+    account = tenant.primary_account()
+    # CloudFormation cannot edit *-runtime. Publish that boundary before cdk deploy.
+    if not args.dry_run and account.id:
+        session = _aws_session(chosen, region)
+        for line in ensure_bootstrap_policies(
+            session.client("iam"),
+            env_name=tenant.name,
+            account_id=account.id,
+            region=region,
+            email_from=tenant.email_from,
+            email_identity=tenant.email_identity,
+            namespace=tenant.namespace,
+        ):
+            print(line)
     return _run_cdk(
         "renglo_ops.cdk.hub",
-        profile=args.profile or profile,
+        profile=chosen,
         region=region,
         extra_env={
             "RENGLO_TENANT": str(tenant.path),

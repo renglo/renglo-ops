@@ -75,6 +75,44 @@ def test_existing_env_keeps_the_default_qualifier(tmp_path: Path) -> None:
     assert "cdk-stanley0713-" not in rendered
 
 
+def test_runtime_policy_keeps_amplify_tagged_and_github_boundary_is_narrow() -> None:
+    from renglo_ops.target_role import github_boundary_policy, role_guard_policy, runtime_policy
+
+    document = runtime_policy(
+        env_name="liga1030",
+        account_id="339713094352",
+        region="us-east-1",
+        namespace="liga",
+    )
+    row = next(item for item in document["Statement"] if item.get("Action") == ["amplify:*"])
+    assert row["Condition"]["StringEquals"]["aws:ResourceTag/liga:env"] == "liga1030"
+    assert row["Resource"] == ["arn:aws:amplify:us-east-1:339713094352:apps/*"]
+    github = github_boundary_policy(
+        env_name="liga1030",
+        account_id="339713094352",
+        region="us-east-1",
+    )
+    console = next(item for item in github["Statement"] if item.get("Sid") == "AmplifyConsoleDeploy")
+    assert "amplify:*" not in json.dumps(github)
+    assert "Condition" not in console
+    assert console["Action"] == [
+        "amplify:CreateDeployment",
+        "amplify:StartDeployment",
+        "amplify:GetJob",
+        "amplify:StopJob",
+        "amplify:GetApp",
+        "amplify:GetBranch",
+    ]
+    assert console["Resource"] == ["arn:aws:amplify:us-east-1:339713094352:apps/*"]
+    assert len(json.dumps(github, separators=(",", ":"))) < 6144
+    widest = github_boundary_policy(env_name="abcdefghij", account_id="982081058012", region="ap-southeast-2")
+    assert len(json.dumps(widest, separators=(",", ":"))) < 6144
+    guard = role_guard_policy(env_name="abcdefghij", account_id="982081058012", region="ap-southeast-2")
+    assert len(json.dumps(guard, separators=(",", ":"))) < 6144
+    wrong = next(item for item in guard["Statement"] if item.get("Sid") == "DenyGitHubRoleWrongBoundary")
+    assert wrong["Condition"]["StringNotEquals"]["iam:PermissionsBoundary"].endswith(":policy/abcdefghij-github")
+
+
 def test_execution_policy_can_tag_amplify_and_delete_the_installer_role() -> None:
     from renglo_ops.target_role import execution_policy
 
@@ -167,7 +205,7 @@ def test_bootstrap_creates_the_policies_it_attaches() -> None:
         region="us-east-1",
         email_from="noreply@acme.com",
     )
-    assert first == ["created acme1-cfn-exec", "created acme1-role-guard", "created acme1-runtime"]
+    assert first == ["created acme1-cfn-exec", "created acme1-role-guard", "created acme1-runtime", "created acme1-github"]
     second = ensure_bootstrap_policies(
         iam,
         env_name="acme1",
@@ -175,7 +213,7 @@ def test_bootstrap_creates_the_policies_it_attaches() -> None:
         region="us-east-1",
         email_from="noreply@acme.com",
     )
-    assert second == ["unchanged acme1-cfn-exec", "unchanged acme1-role-guard", "unchanged acme1-runtime"]
+    assert second == ["unchanged acme1-cfn-exec", "unchanged acme1-role-guard", "unchanged acme1-runtime", "unchanged acme1-github"]
     assert failed_toolkit_status("ROLLBACK_COMPLETE")
     assert not failed_toolkit_status("CREATE_COMPLETE")
 

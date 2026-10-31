@@ -327,7 +327,7 @@ class TemplateComplianceChecker:
         if not isinstance(resources, dict):
             self._add(report, ComplianceFinding("CI-002", "Onboarding template has no Resources map."))
             return
-        required = ("ExecutionPolicy", "RuntimePolicy", "RoleGuardPolicy", "DeployPolicy", "DeployRole")
+        required = ("ExecutionPolicy", "RuntimePolicy", "GitHubPolicy", "RoleGuardPolicy", "DeployPolicy", "DeployRole")
         for name in required:
             if name not in resources:
                 self._add(
@@ -396,6 +396,7 @@ class TemplateComplianceChecker:
         for policy_key, suffix in (
             ("ExecutionPolicy", "-cfn-exec"),
             ("RuntimePolicy", "-runtime"),
+            ("GitHubPolicy", "-github"),
             ("RoleGuardPolicy", "-role-guard"),
             ("DeployPolicy", "-deploy"),
         ):
