@@ -589,6 +589,32 @@ def _cmd_stack_destroy(args: argparse.Namespace) -> int:
     return 0
 
 
+def _delete_failed_toolkit(cloudformation, stack_name: str) -> None:
+    """Drop a toolkit stack that never finished creating so bootstrap can start clean."""
+    from renglo_ops.target_role import failed_toolkit_status
+
+    try:
+        described = cloudformation.describe_stacks(StackName=stack_name)
+    except Exception as exc:
+        code = ""
+        response = getattr(exc, "response", None)
+        if isinstance(response, dict):
+            code = str((response.get("Error") or {}).get("Code") or "")
+        message = str(exc)
+        if code in {"ValidationError", "ClientError"} or "does not exist" in message:
+            return
+        raise
+    status = str(described["Stacks"][0].get("StackStatus") or "")
+    if not failed_toolkit_status(status):
+        return
+    print(f"deleting failed toolkit stack {stack_name} ({status})")
+    cloudformation.delete_stack(StackName=stack_name)
+    cloudformation.get_waiter("stack_delete_complete").wait(
+        StackName=stack_name,
+        WaiterConfig={"Delay": 5, "MaxAttempts": 60},
+    )
+
+
 def _cmd_account_bootstrap(args: argparse.Namespace) -> int:
     tenant = _tenant_from_env()
     profile, region = _profile_region()
@@ -602,7 +628,7 @@ def _cmd_account_bootstrap(args: argparse.Namespace) -> int:
             "Refusing to bootstrap without a region from .renglo/local.yaml.\n"
             "  The default AWS profile is never used."
         )
-    from renglo_ops.target_role import bootstrap_arguments
+    from renglo_ops.target_role import bootstrap_arguments, ensure_bootstrap_policies, toolkit_stack_name
 
     cdk = shutil.which("cdk") or "cdk"
     workspace = tenant.path.parent if tenant.path is not None else Path.cwd()
@@ -619,6 +645,18 @@ def _cmd_account_bootstrap(args: argparse.Namespace) -> int:
     print(" ".join(command))
     if args.dry_run:
         return 0
+    session = _aws_session(profile, region)
+    for line in ensure_bootstrap_policies(
+        session.client("iam"),
+        env_name=tenant.name,
+        account_id=account.id,
+        region=region,
+        email_from=tenant.email_from,
+        email_identity=tenant.email_identity,
+        namespace=tenant.namespace,
+    ):
+        print(line)
+    _delete_failed_toolkit(session.client("cloudformation"), toolkit_stack_name(tenant.name))
     env = os.environ.copy()
     env.pop("AWS_DEFAULT_PROFILE", None)
     env["AWS_PROFILE"] = profile
@@ -699,13 +737,16 @@ def _cmd_email_sender(args: argparse.Namespace) -> int:
     from renglo.operate import identity_status, ses_account
 
     tenant, _profile, _region, session = _operator_clients(args)
+    from renglo_ops.target_role import domain_identity_name
+
+    sender = tenant.email_from
     identity = tenant.email_from
     if tenant.email_identity == "domain":
-        identity = tenant.email_from.split("@", 1)[-1]
+        identity = domain_identity_name(tenant.email_from)
     sandbox, mode = ses_account(session.client("sesv2"))
     status = identity_status(session.client("ses"), identity)
     print(
-        f"from: {tenant.email_from}  identity: {tenant.email_identity}  "
+        f"from: {sender}  identity: {identity}  "
         f"verification: {status}  sandbox: {sandbox}  mode: {mode}"
     )
     return 0
@@ -819,6 +860,32 @@ def _cmd_webhook_unstage(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_auth_init(args: argparse.Namespace) -> int:
+    from renglo_ops.auth.providers import secret_name_for
+    from renglo_ops.auth.scaffold import install_auth_config
+
+    if args.bom.strip():
+        bom_root = Path(args.bom).expanduser().resolve()
+        tenant = load_tenant(bom_root / "renglo.yaml")
+    else:
+        tenant = _tenant_from_env()
+        if tenant.path is None:
+            raise RengloOpsError("renglo.yaml not found")
+        bom_root = tenant.path.parent
+    result = install_auth_config(
+        bom_root,
+        tenant.name,
+        force=args.force,
+        dry_run=args.dry_run,
+    )
+    labels = {"wrote": "wrote", "kept": "kept", "would-write": "would write"}
+    print(f"{labels[result.action]} {result.path}")
+    if result.action != "kept":
+        secret = secret_name_for(tenant.name, "google")
+        print(f"Create the secret {secret}, then run renglo stack deploy --stack a,b.")
+    return 0
+
+
 def _cmd_user_invite(args: argparse.Namespace) -> int:
     from renglo.operate import cognito_id_token, invite_user, platform_vars
 
@@ -880,6 +947,16 @@ def main(argv: list[str] | None = None) -> int:
     config_sub = config.add_subparsers(dest="config_cmd")
     _init_flags(config_sub.add_parser("init"))
     config_sub.add_parser("check")
+
+    auth = sub.add_parser("auth", help="Federated sign-in files in the BOM repo")
+    auth_sub = auth.add_subparsers(dest="auth_cmd", required=True)
+    auth_init = auth_sub.add_parser(
+        "init",
+        help="Write auth/providers.yaml next to renglo.yaml",
+    )
+    auth_init.add_argument("--bom", default="", help="BOM repo root (default: resolved tenant)")
+    auth_init.add_argument("--force", action="store_true")
+    auth_init.add_argument("--dry-run", action="store_true")
 
     stack = sub.add_parser("stack")
     stack_sub = stack.add_subparsers(dest="stack_cmd")
@@ -1061,6 +1138,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_config_init(args)
         if args.cmd == "config" and args.config_cmd == "check":
             return _cmd_check()
+        if args.cmd == "auth" and args.auth_cmd == "init":
+            return _cmd_auth_init(args)
         if args.cmd == "stack" and args.stack_cmd == "deploy":
             return _cmd_stack(args)
         if args.cmd == "stack" and args.stack_cmd == "status":

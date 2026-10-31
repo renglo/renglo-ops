@@ -7,19 +7,43 @@ DNS / verification modes (resilient for tenants with or without Route53):
 
 - ``email`` identity: SES emails a verification link to ``email_from`` (needs an
   inbox that can receive that one message). No Route53 required.
-- ``domain`` identity + ``email_hosted_zone_id``: verify the domain and create
-  DKIM (and related) records in that public hosted zone automatically.
-- ``domain`` identity without a hosted zone id: create the SES domain identity
-  only and export DKIM record names/values for the operator to add at their
-  DNS provider (GoDaddy, Cloudflare, etc.).
+- ``domain`` identity: verify the domain in ``email.from``. When that SES
+  identity is already in the account, this stack reuses it and does not create
+  DNS records. Otherwise it creates the domain identity, writing DKIM into
+  ``email_hosted_zone_id`` when that is set.
 """
 
 from __future__ import annotations
+
+import os
 
 from aws_cdk import ArnFormat, CfnOutput, Stack
 from aws_cdk import aws_route53 as route53
 from aws_cdk import aws_ses as ses
 from constructs import Construct
+
+from renglo_ops.target_role import domain_identity_name
+
+
+def ses_identity_registered(identity_name: str) -> bool:
+    """True when this account already has the SES identity. A lookup failure refuses to create another one."""
+    import boto3
+
+    region = (
+        os.environ.get("AWS_REGION")
+        or os.environ.get("AWS_DEFAULT_REGION")
+        or os.environ.get("CDK_DEFAULT_REGION")
+        or "us-east-1"
+    )
+    client = boto3.client("ses", region_name=region)
+    try:
+        result = client.get_identity_verification_attributes(Identities=[identity_name])
+    except Exception as exc:
+        raise ValueError(
+            f"Could not check whether SES identity {identity_name} already exists ({exc}). "
+            "Refusing to create a second copy."
+        ) from exc
+    return identity_name in (result.get("VerificationAttributes") or {})
 
 
 def _ses_identity_arn(identity: ses.EmailIdentity, identity_name: str) -> str:
@@ -63,50 +87,53 @@ class EmailStack(Construct):
                 "customer-config.json: email_identity_type must be 'email' or 'domain'"
             )
 
-        domain = email_from.split("@", 1)[1].strip().lower()
         zone_id = (email_hosted_zone_id or "").strip()
         dns_mode = "email_inbox"
         route53_auto = False
 
-        if identity_type == "domain" and zone_id:
-            # Import existing public zone — no Route53 lookup at synth time.
-            # zone_name must equal the email domain for SES publicHostedZone().
-            hosted_zone = route53.PublicHostedZone.from_public_hosted_zone_attributes(
-                self,
-                "EmailHostedZone",
-                hosted_zone_id=zone_id,
-                zone_name=domain,
-            )
-            identity = ses.EmailIdentity(
-                self,
-                "InviteFromIdentity",
-                identity=ses.Identity.public_hosted_zone(hosted_zone),
-            )
-            identity_name = domain
-            dns_mode = "route53_auto"
-            route53_auto = True
-        elif identity_type == "domain":
-            identity = ses.EmailIdentity(
-                self,
-                "InviteFromIdentity",
-                identity=ses.Identity.domain(domain),
-            )
-            identity_name = domain
-            dns_mode = "manual_dns"
-            # Export DKIM CNAMEs so operators can paste them into any DNS host.
-            for index, record in enumerate(identity.dkim_records, start=1):
-                CfnOutput(
+        if identity_type == "domain":
+            identity_name = domain_identity_name(email_from)
+            if ses_identity_registered(identity_name):
+                identity = ses.EmailIdentity.from_email_identity_name(
                     self,
-                    f"DkimRecord{index}Name",
-                    value=record.name,
-                    description=f"DKIM CNAME name #{index} — add at your DNS provider",
+                    "InviteFromIdentity",
+                    identity_name,
                 )
-                CfnOutput(
+                dns_mode = "shared"
+            elif zone_id:
+                hosted_zone = route53.PublicHostedZone.from_public_hosted_zone_attributes(
                     self,
-                    f"DkimRecord{index}Value",
-                    value=record.value,
-                    description=f"DKIM CNAME value #{index}",
+                    "EmailHostedZone",
+                    hosted_zone_id=zone_id,
+                    zone_name=identity_name,
                 )
+                identity = ses.EmailIdentity(
+                    self,
+                    "InviteFromIdentity",
+                    identity=ses.Identity.public_hosted_zone(hosted_zone),
+                )
+                dns_mode = "route53_auto"
+                route53_auto = True
+            else:
+                identity = ses.EmailIdentity(
+                    self,
+                    "InviteFromIdentity",
+                    identity=ses.Identity.domain(identity_name),
+                )
+                dns_mode = "manual_dns"
+                for index, record in enumerate(identity.dkim_records, start=1):
+                    CfnOutput(
+                        self,
+                        f"DkimRecord{index}Name",
+                        value=record.name,
+                        description=f"DKIM CNAME name #{index} — add at your DNS provider",
+                    )
+                    CfnOutput(
+                        self,
+                        f"DkimRecord{index}Value",
+                        value=record.value,
+                        description=f"DKIM CNAME value #{index}",
+                    )
         else:
             if zone_id:
                 # Zone id is irrelevant for single-email verification; ignore safely.
@@ -141,6 +168,7 @@ class EmailStack(Construct):
             "SesDnsMode",
             value=dns_mode,
             description=(
+                "shared: this account already has the domain identity; no DNS records are created. "
                 "route53_auto: DKIM records created in email_hosted_zone_id. "
                 "manual_dns: add DkimRecord* outputs at your DNS provider. "
                 "email_inbox: confirm the SES verification email to email_from."

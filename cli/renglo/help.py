@@ -226,6 +226,24 @@ SECTIONS: list[Section] = [
         ],
     ),
     Section(
+        "auth",
+        "Turn on federated sign-in",
+        [
+            (
+                "renglo auth init",
+                "Write auth/providers.yaml in the BOM repo, with this environment's secret names.",
+            ),
+            (
+                "renglo auth init --dry-run",
+                "Print the auth/providers.yaml path and stop before writing.",
+            ),
+            (
+                "renglo stack deploy --stack a,b",
+                "Register enabled providers on the user pool and publish the login list.",
+            ),
+        ],
+    ),
+    Section(
         "operate",
         "Run a live environment",
         sections=[

@@ -8,6 +8,7 @@ from pathlib import Path
 from renglo_ops.localdev_render import run_write_local_config
 from renglo_ops.model.errors import RengloOpsError
 from renglo_ops.model.local import refuse_tool_output, workspace_root
+from renglo_ops.model.placement import wl_npm_package
 from renglo_ops.model.tenant import Tenant
 
 
@@ -39,6 +40,7 @@ def local_config(
         aws_profile=profile or None,
         aws_region=region or None,
         output_dir=preview,
+        wl_npm=wl_npm_package(tenant.packages),
         dry_run=dry_run,
     )
     written = {"preview": str(out)}

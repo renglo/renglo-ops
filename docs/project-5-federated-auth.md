@@ -10,20 +10,26 @@ Cognito stays the only token issuer. The Console starts one authorization-code r
 
 ---
 
-## Set up Google for Stanley
+## Set up Google
 
 The login screen can show **Continue with Google** before Google is connected. In local development that button comes from the Console reference list, so it appears even when Cognito has no Google provider yet. Clicking it then fails. The button works after the four steps below.
 
 You need two values from Google, and you put them in AWS, not in git:
-
 
 | What                | Where you get it     | Where it goes                         |
 | ------------------- | -------------------- | ------------------------------------- |
 | OAuth client id     | Google Cloud Console | Secrets Manager field `client_id`     |
 | OAuth client secret | Google Cloud Console | Secrets Manager field `client_secret` |
 
+Nothing else is typed into the Console or the API. `ops/<namespace>-bom/auth/providers.yaml` points at the secret name `<env>/renglo/auth/google`.
 
-Nothing else is typed into the Console or the API. `ops/skbrk-bom/auth/providers.yaml` already points at the secret name `stanley0731/renglo/auth/google`.
+From the workspace, create the folder and file when they are missing:
+
+```bash
+renglo auth init
+```
+
+The name in `renglo.yaml` is written into each secret. Google is enabled. Okta and Meta stay disabled until you turn them on. `--dry-run` prints the path. `--force` replaces a file that is already there. `--bom PATH` writes into a different BOM checkout.
 
 ### 1. Create the Google OAuth client
 
@@ -34,10 +40,9 @@ In [Google Cloud Console](https://console.cloud.google.com/):
 3. Open **APIs & Services → Credentials → Create credentials → OAuth client ID**.
 4. Application type: **Web application**.
 5. Authorized redirect URI (this is Cognito, not the Console):
-  `https://{env}.auth.{region}.amazoncognito.com/oauth2/idpresponse`
+
+   `https://{env}.auth.{region}.amazoncognito.com/oauth2/idpresponse`
 6. Copy the **Client ID** and **Client secret**.
-
-
 
 ### 2. Store them in Secrets Manager
 
@@ -71,7 +76,7 @@ That keeps the existing user pool and registers Google on it. It also allows the
 
 Email and password sign-in does not use this setup.
 
-Which providers exist is a file in the tenant BOM repository, `auth/providers.yaml`, next to `renglo.yaml`. Package pin files are not the place for it. A missing file leaves email and password as the only sign-in.
+Which providers exist is a file in the tenant BOM repository, `auth/providers.yaml`, next to `renglo.yaml`. `renglo auth init` writes the starting file. Package pin files are not the place for it. A missing file leaves email and password as the only sign-in.
 
 ## Secrets
 
@@ -155,6 +160,7 @@ An invite link may include `?invite=<uuid>`. Sign-in keeps that value through pa
 
 | Change | Do this |
 | --- | --- |
+| No `auth/providers.yaml` in the BOM | `renglo auth init` |
 | Enable or disable a provider in `auth/providers.yaml` | Create or update the Secrets Manager secret, then `renglo stack deploy --stack a,b` |
 | Rotate an OAuth client secret | `aws secretsmanager put-secret-value`, then redeploy stack A so Cognito picks up the new values |
 | Hosted login shows the wrong provider buttons | Redeploy stack B (or the full hub) so `AUTH_PROVIDERS` and `GET /_auth/providers` match the file |

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+_WL_NPM = re.compile(r"^@[^/]+/wl$")
 
 
 def package_name_aliases(packages: dict[str, Any]) -> dict[str, str]:
@@ -31,6 +34,17 @@ def resolve_package_handle(packages: dict[str, Any], item: str) -> str:
     if not name:
         return name
     return package_name_aliases(packages).get(name, name)
+
+
+def wl_npm_package(packages: dict[str, Any]) -> str:
+    """npm name of the tenant white-label pack, ``@scope/wl``."""
+    for spec in packages.values():
+        if not isinstance(spec, dict):
+            continue
+        npm = str(spec.get("npm") or "").strip()
+        if _WL_NPM.match(npm):
+            return npm
+    return ""
 
 
 def placement_hub_missing_packages(

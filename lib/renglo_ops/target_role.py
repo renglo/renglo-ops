@@ -335,6 +335,10 @@ def runtime_policy_name(env_name: str) -> str:
     return f"{str(env_name or '').strip()}-runtime"
 
 
+def role_guard_policy_name(env_name: str) -> str:
+    return f"{str(env_name or '').strip()}-role-guard"
+
+
 def runtime_policy_arn(account_id: str, env_name: str) -> str:
     return f"arn:aws:iam::{str(account_id or '').strip()}:policy/{runtime_policy_name(env_name)}"
 
@@ -385,7 +389,15 @@ def _bucket_arns(*names: str) -> list[str]:
     return arns
 
 
-def _ses_identity(email_from: str, email_identity: str) -> str:
+def domain_identity_name(email_from: str) -> str:
+    """Domain SES identity named by ``email.from``. ``noreply+liga@renglo.com`` is ``renglo.com``."""
+    sender = str(email_from or "").strip().lower()
+    if "@" not in sender:
+        return ""
+    return sender.split("@", 1)[1].strip().rstrip(".")
+
+
+def _ses_identity(email_from: str, email_identity: str, env_name: str = "") -> str:
     sender = str(email_from or "").strip()
     if not sender or "@" not in sender:
         return ""
@@ -393,7 +405,7 @@ def _ses_identity(email_from: str, email_identity: str) -> str:
     if kind not in ("email", "domain"):
         raise RengloOpsError("email.identity must be email or domain")
     if kind == "domain":
-        return sender.split("@", 1)[1].strip().lower()
+        return domain_identity_name(sender)
     return sender
 
 
@@ -451,7 +463,7 @@ def _permissions_document(
     ssm_names = [f"/{name}/bootstrap/platform-vars/production", f"/{name}/bootstrap/deploy-input"]
     if "staging" in stages:
         ssm_names.append(f"/{name}/bootstrap/platform-vars/staging")
-    ses_name = _ses_identity(email_from, email_identity)
+    ses_name = _ses_identity(email_from, email_identity, env_name)
     statements: list[dict[str, Any]] = [
             _allow("CallerIdentity", ["sts:GetCallerIdentity"], ["*"]),
             _allow(
@@ -636,6 +648,7 @@ def runtime_policy(
     account_id: str,
     region: str,
     email_from: str = "",
+    email_identity: str = "email",
     namespace: str | None = None,
 ) -> dict[str, Any]:
     """Ceiling for application roles. CloudFormation must set this boundary when it creates them.
@@ -648,9 +661,9 @@ def runtime_policy(
     if not uses_named_qualifier(name):
         raise RengloOpsError("a runtime boundary is only generated when the env name is the CDK qualifier")
     sender = str(email_from or "").strip()
+    if str(email_identity or "email").strip().lower() == "domain":
+        sender = domain_identity_name(sender)
     slug = name.lower()
-    data_bucket = f"{slug}-{account}-{region_name}"
-    docs_bucket = f"{slug}-rag-docs-{account}"[:63].rstrip("-.")
     vector_bucket = f"{slug}-vectors-{account}"[:63].rstrip("-.")
     assets_bucket = f"cdk-{name}-assets-{account}-{region_name}"
     assets_repo = f"cdk-{name}-container-assets-{account}-{region_name}"
@@ -679,12 +692,15 @@ def runtime_policy(
                 ["logs:*"],
                 [
                     f"arn:aws:logs:{region_name}:{account}:log-group:/aws/lambda/{name}*",
-                    f"arn:aws:logs:{region_name}:{account}:log-group:/aws/lambda/{name}*:*",
                     f"arn:aws:logs:{region_name}:{account}:log-group:/aws/codebuild/{name}*",
-                    f"arn:aws:logs:{region_name}:{account}:log-group:/aws/codebuild/{name}*:*",
                 ],
             ),
-            _allow("Storage", ["s3:*"], _bucket_arns(data_bucket, docs_bucket, assets_bucket) + [
+            _allow(
+                "States",
+                ["states:StartExecution", "states:DescribeExecution", "states:StopExecution"],
+                ["*"],
+            ),
+            _allow("Storage", ["s3:*"], _bucket_arns(assets_bucket) + [
                 f"arn:aws:s3:::{name}-*",
                 f"arn:aws:s3:::{name}-*/*",
             ]),
@@ -718,7 +734,11 @@ def runtime_policy(
                     f"arn:aws:ecr:{region_name}:{account}:repository/{assets_repo}",
                 ],
             ),
-            _allow("ImageLogin", ["ecr:GetAuthorizationToken"], ["*"]),
+            _allow(
+                "ImageLogin",
+                ["ecr:GetAuthorizationToken", "ecr-public:GetAuthorizationToken", "sts:GetServiceBearerToken"],
+                ["*"],
+            ),
             _allow(
                 "Tasks",
                 ["ecs:RunTask", "ecs:DescribeTasks", "ecs:ListTasks", "ecs:DescribeClusters", "ecs:StopTask"],
@@ -883,7 +903,7 @@ def execution_policy(
     tag_key = env_tag_key(namespace)
     tag = {"StringEquals": {f"aws:RequestTag/{tag_key}": name}}
     tagged = {"StringEquals": {f"aws:ResourceTag/{tag_key}": name}}
-    ses_name = _ses_identity(email_from, email_identity)
+    ses_name = _ses_identity(email_from, email_identity, env_name)
     statements: list[dict[str, Any]] = [
         _allow("CallerIdentity", ["sts:GetCallerIdentity"], ["*"]),
         _allow(
@@ -896,8 +916,7 @@ def execution_policy(
             ["cloudformation:*"],
             [
                 f"arn:aws:cloudformation:{region_name}:{account}:stack/{toolkit_stack_name(name)}/*",
-                f"arn:aws:cloudformation:{region_name}:{account}:stack/{name}-stack-a/*",
-                f"arn:aws:cloudformation:{region_name}:{account}:stack/{name}-stack-b/*",
+                f"arn:aws:cloudformation:{region_name}:{account}:stack/{name}-*",
             ],
         ),
         _allow("S3", ["s3:*"], _bucket_arns(data_bucket, docs_bucket, assets_bucket)),
@@ -924,8 +943,9 @@ def execution_policy(
                 f"arn:aws:iam::{account}:role/{name}-*",
                 f"arn:aws:iam::{account}:role/{name}_*",
                 f"arn:aws:iam::{account}:role/cdk-{name}-*-role-{account}-{region_name}",
-                f"arn:aws:iam::{account}:policy/{name}_tt_policy",
-                f"arn:aws:iam::{account}:policy/{name}_ai_tt_policy",
+                f"arn:aws:iam::{account}:role/GitHubActionsDeployRole-{name}-*",
+                f"arn:aws:iam::{account}:role/{installer_role_name(namespace)}",
+                f"arn:aws:iam::{account}:policy/{name}_*",
             ],
         ),
         _allow(
@@ -969,7 +989,15 @@ def execution_policy(
                 f"arn:aws:codedeploy:{region_name}:{account}:deploymentgroup:{name}-*/*",
             ],
         ),
-        _allow("Secret", ["secretsmanager:*"], [f"arn:aws:secretsmanager:{region_name}:{account}:secret:{name}/*"]),
+        _allow(
+            "Secret",
+            ["secretsmanager:*"],
+            [
+                f"arn:aws:secretsmanager:{region_name}:{account}:secret:{name}/*",
+                f"arn:aws:secretsmanager:{region_name}:{account}:secret:events!connection/{name}-*",
+            ],
+        ),
+        _allow("SecretPassword", ["secretsmanager:GetRandomPassword"], ["*"]),
         _allow(
             "Events",
             ["events:*"],
@@ -993,10 +1021,16 @@ def execution_policy(
             [f"arn:aws:apigateway:{region_name}::/restapis/*", f"arn:aws:apigateway:{region_name}::/apis/*"],
             tagged,
         ),
-        _allow("AmplifyCreate", ["amplify:CreateApp"], ["*"], tag),
+        _allow("ApiTag", ["apigateway:*"], [f"arn:aws:apigateway:{region_name}::/tags/*"]),
+        _allow(
+            "AmplifyCreate",
+            ["amplify:CreateApp", "amplify:TagResource", "amplify:UntagResource"],
+            ["*"],
+        ),
+        _allow("AmplifyBranch", ["amplify:*Branch"], ["*"]),
         _allow("Amplify", ["amplify:*"], [f"arn:aws:amplify:{region_name}:{account}:apps/*"], tagged),
-        _allow("BedrockCreate", ["bedrock:CreateKnowledgeBase"], ["*"], tag),
-        _allow("Bedrock", ["bedrock:*"], [f"arn:aws:bedrock:{region_name}:{account}:knowledge-base/*"], tagged),
+        _allow("States", ["states:*"], ["*"]),
+        _allow("Bedrock", ["bedrock:*"], ["*"]),
         _allow(
             "Vectors",
             ["s3vectors:*"],
@@ -1723,6 +1757,152 @@ def onboarding_template_yaml(namespace: str | None = None) -> str:
     return yaml.safe_dump(onboarding_template(namespace), sort_keys=False)
 
 
+FAILED_TOOLKIT_STATUSES = frozenset({"ROLLBACK_COMPLETE", "CREATE_FAILED", "ROLLBACK_FAILED"})
+
+_IAM_POLICY_LIMIT = 6144
+
+
+def failed_toolkit_status(status: str) -> bool:
+    """A first bootstrap that rolled back must be deleted before CDK will try again."""
+    return str(status or "").strip() in FAILED_TOOLKIT_STATUSES
+
+
+def bootstrap_policy_specs(
+    *,
+    env_name: str,
+    account_id: str,
+    region: str,
+    email_from: str = "",
+    email_identity: str = "email",
+    namespace: str | None = None,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Managed policies CDK bootstrap attaches. Empty when the env keeps the default qualifier."""
+    if not uses_named_qualifier(env_name):
+        return []
+    return [
+        (
+            execution_policy_name(env_name),
+            execution_policy(
+                env_name=env_name,
+                account_id=account_id,
+                region=region,
+                email_from=email_from,
+                email_identity=email_identity,
+                namespace=namespace,
+            ),
+        ),
+        (
+            role_guard_policy_name(env_name),
+            role_guard_policy(env_name=env_name, account_id=account_id, region=region),
+        ),
+        (
+            runtime_policy_name(env_name),
+            runtime_policy(
+                env_name=env_name,
+                account_id=account_id,
+                region=region,
+                email_from=email_from,
+                email_identity=email_identity,
+                namespace=namespace,
+            ),
+        ),
+    ]
+
+
+def _policy_description(name: str) -> str:
+    if name.endswith("-cfn-exec"):
+        return "CloudFormation execution policy and permissions boundary for toolkit roles."
+    if name.endswith("-role-guard"):
+        return "Requires the runtime boundary on application roles and the execution boundary on toolkit roles."
+    if name.endswith("-runtime"):
+        return "Permissions boundary for application roles."
+    return "Renglo environment policy."
+
+
+def _canonical_policy(document: dict[str, Any]) -> str:
+    return json.dumps(document, sort_keys=True, separators=(",", ":"))
+
+
+def _error_code(exc: Exception) -> str:
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        return str((response.get("Error") or {}).get("Code") or "")
+    return ""
+
+
+def _wait_for_policy(iam: Any, arn: str) -> None:
+    import time
+
+    last: Exception | None = None
+    for attempt in range(10):
+        try:
+            iam.get_policy(PolicyArn=arn)
+            return
+        except Exception as exc:
+            if _error_code(exc) != "NoSuchEntity":
+                raise
+            last = exc
+            time.sleep(0.2 if attempt < 3 else 1)
+    raise RengloOpsError(f"IAM policy {arn} was created but is not readable yet") from last
+
+
+def _upsert_managed_policy(iam: Any, *, account_id: str, name: str, document: dict[str, Any]) -> str:
+    body = json.dumps(document, separators=(",", ":"))
+    if len(body) > _IAM_POLICY_LIMIT:
+        raise RengloOpsError(f"{name} is {len(body)} characters; IAM allows {_IAM_POLICY_LIMIT}")
+    arn = f"arn:aws:iam::{account_id}:policy/{name}"
+    try:
+        found = iam.get_policy(PolicyArn=arn)
+    except Exception as exc:
+        if _error_code(exc) != "NoSuchEntity":
+            raise
+        iam.create_policy(
+            PolicyName=name,
+            PolicyDocument=body,
+            Description=_policy_description(name),
+        )
+        _wait_for_policy(iam, arn)
+        return "created"
+    current_id = str(found["Policy"]["DefaultVersionId"])
+    current = iam.get_policy_version(PolicyArn=arn, VersionId=current_id)["PolicyVersion"]["Document"]
+    if isinstance(current, str):
+        current = json.loads(current)
+    if _canonical_policy(current) == _canonical_policy(document):
+        return "unchanged"
+    versions = iam.list_policy_versions(PolicyArn=arn)["Versions"]
+    if len(versions) >= 5:
+        removable = [item for item in versions if not item.get("IsDefaultVersion")]
+        removable.sort(key=lambda item: item.get("CreateDate") or "")
+        iam.delete_policy_version(PolicyArn=arn, VersionId=removable[0]["VersionId"])
+    iam.create_policy_version(PolicyArn=arn, PolicyDocument=body, SetAsDefault=True)
+    return "updated"
+
+
+def ensure_bootstrap_policies(
+    iam: Any,
+    *,
+    env_name: str,
+    account_id: str,
+    region: str,
+    email_from: str = "",
+    email_identity: str = "email",
+    namespace: str | None = None,
+) -> list[str]:
+    """Create the policies named by cdk bootstrap. Returns lines such as ``created acme1-cfn-exec``."""
+    lines: list[str] = []
+    for name, document in bootstrap_policy_specs(
+        env_name=env_name,
+        account_id=account_id,
+        region=region,
+        email_from=email_from,
+        email_identity=email_identity,
+        namespace=namespace,
+    ):
+        action = _upsert_managed_policy(iam, account_id=account_id, name=name, document=document)
+        lines.append(f"{action} {name}")
+    return lines
+
+
 def bootstrap_arguments(workspace: Path, env_name: str, account_id: str) -> list[str]:
     """Flags for cdk bootstrap. A new env name uses the execution policy instead of AdministratorAccess."""
     name = str(env_name or "").strip()
@@ -1740,7 +1920,7 @@ def bootstrap_arguments(workspace: Path, env_name: str, account_id: str) -> list
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(bound_bootstrap_roles(source.read_text(encoding="utf-8")), encoding="utf-8")
     policy = execution_policy_name(name)
-    guard = f"{name}-role-guard"
+    guard = role_guard_policy_name(name)
     arguments.extend(
         [
             "--template",

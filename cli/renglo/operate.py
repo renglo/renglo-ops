@@ -543,7 +543,9 @@ def list_identities(ses: Any) -> list[tuple[str, str, str]]:
 
 def verify_sender(ses: Any, tenant: Tenant) -> str:
     if tenant.email_identity == "domain":
-        domain = tenant.email_from.split("@", 1)[-1]
+        from renglo_ops.target_role import domain_identity_name
+
+        domain = domain_identity_name(tenant.email_from)
         response = ses.verify_domain_identity(Domain=domain)
         token = str(response.get("VerificationToken") or "")
         detail = f"domain {domain}"

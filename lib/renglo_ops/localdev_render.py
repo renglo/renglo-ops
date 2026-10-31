@@ -222,6 +222,7 @@ def _render_env_development(
     *,
     api_local_url: str,
     ws_local_url: str,
+    wl_npm: str = "",
 ) -> str:
     def v(key: str) -> str:
         return str(vars_block.get(key) or "")
@@ -243,6 +244,7 @@ def _render_env_development(
             "VITE_GOOGLE_MAPS_API_KEY=''",
             "",
             "VITE_DEV_MODE=true",
+            *([f"VITE_WL_PACKAGE={_py_str(wl_npm)}"] if wl_npm.strip() else []),
             "",
         ]
     )
@@ -416,6 +418,7 @@ def run_write_local_config(
     api_local_url: str = _DEFAULT_API_LOCAL,
     ws_local_url: str = _DEFAULT_WS_LOCAL,
     wss_backend_url: str = _DEFAULT_WSS_BACKEND,
+    wl_npm: str = "",
     preserve_secrets: bool = True,
     dry_run: bool = False,
 ) -> Path:
@@ -470,6 +473,7 @@ def run_write_local_config(
             vars_block,
             api_local_url=api_local_url,
             ws_local_url=ws_local_url,
+            wl_npm=wl_npm,
         ),
         "run.sh": _render_run_sh(aws_region=aws_region),
         "README.md": _render_handoff_readme(
