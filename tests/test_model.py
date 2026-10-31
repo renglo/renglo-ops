@@ -177,6 +177,7 @@ def test_help_paths_are_filters() -> None:
         "renglo help",
         "renglo init",
         "renglo config init",
+        "renglo auth init",
         "renglo account bootstrap",
         "renglo stack destroy --stack STACK --yes",
         "renglo peer destroy --peer-id PEER --yes",

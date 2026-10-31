@@ -3,13 +3,18 @@
 from pathlib import Path
 
 import pytest
+import yaml
 
+from renglo.cli import main
+from renglo.help import render
 from renglo_ops.auth.providers import (
     catalog_from_data,
     cognito_provider_request,
     load_provider_catalog,
     reference_public_providers,
+    secret_name_for,
 )
+from renglo_ops.auth.scaffold import install_auth_config, starter_providers_yaml
 from renglo_ops.model.errors import RengloOpsError
 
 
@@ -111,6 +116,103 @@ def test_same_loader_builds_social_oidc_and_saml_requests():
     assert by_id["okta-saml"]["ProviderDetails"]["MetadataURL"] == (
         "https://example.okta.com/metadata"
     )
+
+
+def _tenant_yaml(name: str = "liga1030") -> str:
+    return f"""
+name: {name}
+github:
+  repo: Ligaajusco/liga-bom
+email:
+  from: noreply@example.com
+  identity: email
+accounts:
+  staging:
+    id: "339713094352"
+    region: us-east-1
+    enabled: true
+"""
+
+
+def test_starter_enables_email_and_google_and_names_secrets():
+    text = starter_providers_yaml("liga1030")
+    catalog = catalog_from_data(yaml.safe_load(text), env_name="liga1030", source="starter")
+    assert [item.id for item in catalog.enabled()] == ["cognito", "google"]
+    google = catalog.external_enabled()[0]
+    assert google.secret == secret_name_for("liga1030", "google")
+    assert "liga1030/renglo/auth/okta" in text
+    assert "liga1030/renglo/auth/facebook" in text
+    assert "__GOOGLE__" not in text
+
+    with pytest.raises(RengloOpsError, match="environment name"):
+        starter_providers_yaml("liga/1030")
+
+
+def test_auth_init_writes_the_bom_file(tmp_path: Path, monkeypatch, capsys) -> None:
+    bom = tmp_path / "ops" / "liga-bom"
+    bom.mkdir(parents=True)
+    (bom / "renglo.yaml").write_text(_tenant_yaml(), encoding="utf-8")
+    monkeypatch.delenv("RENGLO_TENANT", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".renglo").mkdir()
+    (tmp_path / ".renglo" / "local.yaml").write_text(
+        "tenant: ops/liga-bom\nregion: us-east-1\n",
+        encoding="utf-8",
+    )
+
+    assert main(["auth", "init", "--dry-run"]) == 0
+    assert "would write" in capsys.readouterr().out
+    assert not (bom / "auth").exists()
+
+    assert main(["auth", "init"]) == 0
+    written = bom / "auth" / "providers.yaml"
+    assert written.is_file()
+    out = capsys.readouterr().out
+    assert "wrote" in out
+    assert "liga1030/renglo/auth/google" in out
+    catalog = load_provider_catalog(written, env_name="liga1030")
+    assert [item["id"] for item in catalog.public_providers()] == ["cognito", "google"]
+
+    assert main(["auth", "init"]) == 0
+    assert "kept" in capsys.readouterr().out
+    assert written.read_text(encoding="utf-8") == starter_providers_yaml("liga1030")
+
+
+def test_auth_init_refuses_to_replace_a_different_file(tmp_path: Path, monkeypatch, capsys) -> None:
+    bom = tmp_path / "liga-bom"
+    bom.mkdir()
+    (bom / "renglo.yaml").write_text(_tenant_yaml("acme1"), encoding="utf-8")
+    dest = bom / "auth" / "providers.yaml"
+    dest.parent.mkdir()
+    dest.write_text("providers: []\n", encoding="utf-8")
+    monkeypatch.delenv("RENGLO_TENANT", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    try:
+        main(["auth", "init", "--bom", str(bom)])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("expected refusal")
+    assert "Pass --force" in capsys.readouterr().err
+    assert dest.read_text(encoding="utf-8") == "providers: []\n"
+
+    assert main(["auth", "init", "--bom", str(bom), "--force"]) == 0
+    assert secret_name_for("acme1", "google") in dest.read_text(encoding="utf-8")
+
+
+def test_auth_init_refuses_the_tool_checkout() -> None:
+    root = Path(__file__).resolve().parents[1]
+    with pytest.raises(RengloOpsError, match="renglo-ops"):
+        install_auth_config(root, "liga1030")
+
+
+def test_help_lists_auth_init() -> None:
+    auth = render("auth")
+    assert "renglo auth init" in auth
+    assert "renglo auth init --dry-run" in auth
+    assert "renglo stack deploy --stack a,b" in auth
+    assert "renglo registry deploy" not in auth
 
 
 def test_reference_document_offers_email_google_and_okta():

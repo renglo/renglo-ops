@@ -1,14 +1,16 @@
 """Compare extension and white-label checkouts to the files bundled in renglo-ops.
 
 Extension repos share one publish workflow. A white-label repo (``*-wl``)
-shares two publish workflows plus ``wl_build.py``. Package manifests stay
-in the product repo; this module only checks that the fields a release
-needs are present.
+shares two publish workflows plus ``wl_build.py``. Sync also fills a missing
+``[tool.renglo] platform`` and ``renglo.platform`` from the tenant ``platform``.
+Other package fields stay in the product repo; this module only checks that
+the fields a release needs are present.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tomllib
 from dataclasses import dataclass
@@ -168,11 +170,91 @@ def sync_extensions(workspace: Path, *, dry_run: bool = False) -> list[tuple[Pat
 
 
 def sync_wl_repos(workspace: Path, *, dry_run: bool = False) -> list[tuple[Path, str, str]]:
-    """Copy shared white-label workflows and wl_build.py. Does not rewrite package configs."""
+    """Copy shared white-label workflows and wl_build.py, and fill a missing platform pin."""
     changed: list[tuple[Path, str, str]] = []
+    platform = _tenant_platform(workspace)
     for repo in find_wl_repos(workspace):
         changed.extend(_sync_templates(repo, "wl", WL_TEMPLATES, dry_run=dry_run))
+        changed.extend(_heal_wl_platform(repo, platform, dry_run=dry_run))
     return changed
+
+
+def _tenant_platform(workspace: Path) -> str:
+    from renglo_ops.model.errors import RengloOpsError
+    from renglo_ops.model.tenant import find_tenant_file, load_tenant
+
+    try:
+        path = find_tenant_file(workspace)
+    except RengloOpsError:
+        return ""
+    return load_tenant(path).platform.strip()
+
+
+def _heal_wl_platform(
+    repo: Path, platform: str, *, dry_run: bool
+) -> list[tuple[Path, str, str]]:
+    if not platform:
+        return []
+    changed: list[tuple[Path, str, str]] = []
+    if _ensure_pyproject_platform(repo / "pyproject.toml", platform, dry_run=dry_run):
+        changed.append((repo, "write", "pyproject.toml"))
+    if _ensure_package_json_platform(repo / "package.json", platform, dry_run=dry_run):
+        changed.append((repo, "write", "package.json"))
+    return changed
+
+
+def _ensure_pyproject_platform(path: Path, platform: str, *, dry_run: bool) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    tool = data.get("tool") if isinstance(data.get("tool"), dict) else {}
+    renglo = tool.get("renglo") if isinstance(tool.get("renglo"), dict) else {}
+    if str(renglo.get("platform") or "").strip():
+        return False
+    text = path.read_text(encoding="utf-8")
+    if not text.endswith("\n"):
+        text += "\n"
+    quoted = json.dumps(platform)
+    if re.search(r"(?m)^\[tool\.renglo\]\s*$", text):
+        text = re.sub(
+            r"(?m)^(\[tool\.renglo\]\s*\n)",
+            rf"\1platform = {quoted}\n",
+            text,
+            count=1,
+        )
+    else:
+        text += f"\n[tool.renglo]\nplatform = {quoted}\n"
+    if not dry_run:
+        path.write_text(text, encoding="utf-8")
+    return True
+
+
+def _ensure_package_json_platform(path: Path, platform: str, *, dry_run: bool) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    renglo = data.get("renglo")
+    if isinstance(renglo, dict) and str(renglo.get("platform") or "").strip():
+        return False
+    if renglo is not None and not isinstance(renglo, dict):
+        return False
+    if not isinstance(renglo, dict):
+        renglo = {}
+        data["renglo"] = renglo
+    renglo["platform"] = platform
+    if not dry_run:
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return True
 
 
 def _sync_templates(

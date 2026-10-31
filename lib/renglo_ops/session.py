@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from renglo_ops.model.errors import RengloOpsError
+from renglo_ops.model.placement import wl_npm_package
 from renglo_ops.model.tenant import (
     Account,
     Tenant,
@@ -315,6 +316,7 @@ class OperatorSession:
                 aws_profile=None,
                 aws_region=region,
                 output_dir=preview,
+                wl_npm=wl_npm_package(tenant.packages),
                 dry_run=False,
             )
         finally:

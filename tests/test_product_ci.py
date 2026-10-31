@@ -140,3 +140,42 @@ def test_wl_sync_command_prefixes_repo(tmp_path: Path, capsys) -> None:
     out = capsys.readouterr().out
     assert "Wrote acme-wl/.github/workflows/publish-python.yml" in out
     assert "Wrote acme-wl/wl_build.py" in out
+
+
+def test_wl_sync_fills_missing_platform_from_the_tenant(tmp_path: Path) -> None:
+    (tmp_path / "renglo.yaml").write_text(
+        "\n".join(
+            [
+                "name: acme",
+                "github:",
+                "  repo: acme/bom",
+                "email:",
+                "  from: noreply@example.com",
+                "  identity: email",
+                "platform: 0.1.11",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    repo = _wl(tmp_path)
+    (repo / "pyproject.toml").write_text(
+        '[project]\nname = "acme-wl"\nversion = "0.0.1"\n',
+        encoding="utf-8",
+    )
+    (repo / "package.json").write_text(
+        json.dumps({"name": "@acme/wl", "version": "0.0.1", "files": ["locales"]}) + "\n",
+        encoding="utf-8",
+    )
+    written = sync_wl_repos(tmp_path)
+    assert (repo, "write", "pyproject.toml") in written
+    assert (repo, "write", "package.json") in written
+    pyproject = (repo / "pyproject.toml").read_text(encoding="utf-8")
+    assert '[tool.renglo]\nplatform = "0.1.11"' in pyproject
+    package = json.loads((repo / "package.json").read_text(encoding="utf-8"))
+    assert package["renglo"]["platform"] == "0.1.11"
+    assert package["files"] == ["locales"]
+    config = [issue for issue in diff_wl(repo) if issue.kind is IssueKind.CONFIG]
+    assert config == []
+    again = sync_wl_repos(tmp_path)
+    assert all(rel not in {"pyproject.toml", "package.json"} for _repo, _action, rel in again)

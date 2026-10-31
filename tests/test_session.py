@@ -75,6 +75,111 @@ def test_existing_env_keeps_the_default_qualifier(tmp_path: Path) -> None:
     assert "cdk-stanley0713-" not in rendered
 
 
+def test_execution_policy_can_tag_amplify_and_delete_the_installer_role() -> None:
+    from renglo_ops.target_role import execution_policy
+
+    document = execution_policy(
+        env_name="liga1029",
+        account_id="339713094352",
+        region="us-east-1",
+        email_from="noreply+liga@renglo.com",
+        email_identity="domain",
+        namespace="liga",
+    )
+    rendered = json.dumps(document)
+    assert "arn:aws:iam::339713094352:role/liga-installer" in rendered
+    assert "events!connection/liga1029-*" in rendered
+    tag_statement = next(row for row in document["Statement"] if "amplify:TagResource" in row.get("Action", []))
+    assert tag_statement["Resource"] == ["*"]
+    assert "Condition" not in tag_statement
+    branch_statement = next(row for row in document["Statement"] if row.get("Action") == ["amplify:*Branch"])
+    assert branch_statement["Resource"] == ["*"]
+    assert "Condition" not in branch_statement
+    states_statement = next(row for row in document["Statement"] if row.get("Action") == ["states:*"])
+    assert states_statement["Resource"] == ["*"]
+    assert "Condition" not in states_statement
+    bedrock_statement = next(row for row in document["Statement"] if row.get("Action") == ["bedrock:*"])
+    assert bedrock_statement["Resource"] == ["*"]
+    assert "Condition" not in bedrock_statement
+    assert any(
+        row.get("Action") == ["secretsmanager:GetRandomPassword"] and row.get("Resource") == ["*"]
+        for row in document["Statement"]
+    )
+    assert any(
+        row.get("Action") == ["apigateway:*"] and row.get("Resource") == ["arn:aws:apigateway:us-east-1::/tags/*"]
+        for row in document["Statement"]
+    )
+
+
+def test_domain_identity_reuses_the_parent_domain() -> None:
+    from renglo_ops.target_role import domain_identity_name, execution_policy
+
+    assert domain_identity_name("noreply+liga@renglo.com") == "renglo.com"
+    document = execution_policy(
+        env_name="liga1029",
+        account_id="339713094352",
+        region="us-east-1",
+        email_from="noreply+liga@renglo.com",
+        email_identity="domain",
+    )
+    rendered = json.dumps(document)
+    assert "identity/renglo.com" in rendered
+    assert "identity/liga1029.renglo.com" not in rendered
+
+
+def test_bootstrap_creates_the_policies_it_attaches() -> None:
+    from renglo_ops.target_role import ensure_bootstrap_policies, failed_toolkit_status
+
+    class Missing(Exception):
+        def __init__(self) -> None:
+            super().__init__("policy does not exist")
+            self.response = {"Error": {"Code": "NoSuchEntity"}}
+
+    class FakeIam:
+        def __init__(self) -> None:
+            self.policies: dict[str, dict] = {}
+
+        def get_policy(self, *, PolicyArn: str) -> dict:
+            name = PolicyArn.rsplit("/", 1)[-1]
+            if name not in self.policies:
+                raise Missing()
+            return {"Policy": {"Arn": PolicyArn, "DefaultVersionId": "v1"}}
+
+        def get_policy_version(self, *, PolicyArn: str, VersionId: str) -> dict:
+            name = PolicyArn.rsplit("/", 1)[-1]
+            return {"PolicyVersion": {"Document": self.policies[name], "VersionId": VersionId}}
+
+        def create_policy(self, *, PolicyName: str, PolicyDocument: str, Description: str) -> dict:
+            self.policies[PolicyName] = json.loads(PolicyDocument)
+            return {"Policy": {"Arn": f"arn:aws:iam::123456789012:policy/{PolicyName}"}}
+
+        def list_policy_versions(self, *, PolicyArn: str) -> dict:
+            raise AssertionError("unchanged policy should not be versioned")
+
+        def create_policy_version(self, **kwargs) -> dict:
+            raise AssertionError("unchanged policy should not be versioned")
+
+    iam = FakeIam()
+    first = ensure_bootstrap_policies(
+        iam,
+        env_name="acme1",
+        account_id="123456789012",
+        region="us-east-1",
+        email_from="noreply@acme.com",
+    )
+    assert first == ["created acme1-cfn-exec", "created acme1-role-guard", "created acme1-runtime"]
+    second = ensure_bootstrap_policies(
+        iam,
+        env_name="acme1",
+        account_id="123456789012",
+        region="us-east-1",
+        email_from="noreply@acme.com",
+    )
+    assert second == ["unchanged acme1-cfn-exec", "unchanged acme1-role-guard", "unchanged acme1-runtime"]
+    assert failed_toolkit_status("ROLLBACK_COMPLETE")
+    assert not failed_toolkit_status("CREATE_COMPLETE")
+
+
 def test_bootstrap_uses_the_env_name_as_qualifier(tmp_path: Path) -> None:
     session, _text = _init(tmp_path)
     result = session.bootstrap(
@@ -232,7 +337,8 @@ def test_trust_policy_names_the_peer_and_external_id() -> None:
     )
     cap_text = json.dumps(cap, separators=(",", ":"))
     assert len(cap_text) < 6144
-    assert "arn:aws:cloudformation:us-east-1:123456789012:stack/acme1-stack-a/*" in cap_text
+    assert "arn:aws:cloudformation:us-east-1:123456789012:stack/acme1-*" in cap_text
+    assert "arn:aws:cloudformation:us-east-1:123456789012:stack/CDKToolkit-acme1/*" in cap_text
     assert "arn:aws:dynamodb:us-east-1:123456789012:table/acme1_*" in cap_text
     assert "arn:aws:s3:::acme1-123456789012-us-east-1" in cap_text
     assert "arn:aws:s3:::acme1-rag-docs-123456789012" in cap_text
@@ -247,7 +353,7 @@ def test_trust_policy_names_the_peer_and_external_id() -> None:
     assert denied["Resource"] == "arn:aws:iam::aws:policy/AdministratorAccess"
     roles = next(row for row in cap["Statement"] if row.get("Sid") == "Roles")
     assert "acme1-cfn-exec" not in json.dumps(roles["Resource"])
-    assert f"arn:aws:iam::123456789012:policy/acme1_tt_policy" in roles["Resource"]
+    assert "arn:aws:iam::123456789012:policy/acme1_*" in roles["Resource"]
     unnamed = next(row for row in document["Statement"] if row.get("Sid") == "ActionsWithoutAName")
     assert unnamed["Action"] == [
         "cloudformation:ListStacks",
@@ -465,6 +571,9 @@ def test_onboarding_template_is_the_deploy_door() -> None:
     )
     assert len(json.dumps(widest_runtime, separators=(",", ":"))) < 6144
     runtime_text = json.dumps(runtime)
+    assert "states:StartExecution" in runtime_text
+    assert "ecr-public:GetAuthorizationToken" in runtime_text
+    assert "sts:GetServiceBearerToken" in runtime_text
     assert "ses:SendRawEmail" in runtime_text
     assert "identity/noreply@example.com" in runtime_text
     assert "identity/*" not in runtime_text

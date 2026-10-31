@@ -229,6 +229,10 @@ Reads the live environment and writes the config files needed to run the API and
 
 Loads `renglo.yaml` and compares `github.repo` with the BOM checkout's `origin`.
 
+### `renglo auth init [--bom PATH] [--force] [--dry-run]`
+
+Writes `auth/providers.yaml` next to `renglo.yaml`. Email and password and Google are enabled. Okta and Meta are listed and left disabled. Each external provider names a Secrets Manager secret `{env}/renglo/auth/{provider}`, using the environment name from `renglo.yaml`. Client secrets stay in AWS. An identical file is left in place. `--force` replaces a file that differs. `--dry-run` prints the path and stops. See [docs/project-5-federated-auth.md](docs/project-5-federated-auth.md).
+
 ### `renglo stack deploy [--stack a|b|a,b] [--dry-run]`
 
 Synths the hub from `renglo.yaml`, then runs `cdk deploy` for the stacks you name. The default is `a,b`. See [docs/project-1-greenfield.md](docs/project-1-greenfield.md) and [docs/operator.md](docs/operator.md).

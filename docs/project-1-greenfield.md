@@ -32,9 +32,7 @@ renglo doctor
 Confirm the profile points at the account you intend to change, then bootstrap that account and region once. A greenfield account has no CDK asset bucket.
 
 ```bash
-export AWS_PROFILE=<your-profile>
-aws sts get-caller-identity --profile "$AWS_PROFILE"
-cdk bootstrap aws://<account-id>/<region> --profile "$AWS_PROFILE"
+renglo account bootstrap
 ```
 
 SES starts in the sandbox. Verify the address or domain in `email.from`, and request production access when the environment will mail people outside the verified identities.
@@ -77,11 +75,7 @@ renglo stack deploy
 ## 5. Confirm the environment answers
 
 ```bash
-aws cloudformation describe-stacks \
-  --stack-name <env-stack-name> \
-  --profile "$AWS_PROFILE" \
-  --query 'Stacks[0].{Status:StackStatus}' \
-  --output table
+renglo stack status
 ```
 
 The outputs of stack A carry the API URL, the user pool, and the client ids that the next step reads.

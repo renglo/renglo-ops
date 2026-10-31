@@ -54,6 +54,7 @@ class ConsoleStack(Construct):
             app_id=app.attr_app_id,
             branch_name="production",
         )
+        Tags.of(prod_branch).add(env_tag_key(namespace), env_name)
         _apply_delete_policy(prod_branch)
 
         if enable_staging:
@@ -63,6 +64,7 @@ class ConsoleStack(Construct):
                 app_id=app.attr_app_id,
                 branch_name="staging",
             )
+            Tags.of(staging_branch).add(env_tag_key(namespace), env_name)
             _apply_delete_policy(staging_branch)
 
         default_domain = app.attr_default_domain
