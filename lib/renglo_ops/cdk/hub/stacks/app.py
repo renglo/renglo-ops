@@ -252,6 +252,10 @@ class AppStack(Construct):
             f"RestApi{cap}",
             name=f"{env_name}-api-{stage}",
             description=DESCRIPTION,
+            # JPEG/PNG bytes are not UTF-8. Without this, API Gateway puts the
+            # multipart body in the Lambda event as text and the signature check
+            # fails. apig_wsgi base64-decodes the body when isBase64Encoded is set.
+            binary_media_types=["multipart/form-data"],
         )
         Tags.of(rest_api).add(env_tag_key(self._namespace), env_name)
 
@@ -300,12 +304,14 @@ class AppStack(Construct):
             source_arn=source_arn,
         )
 
-        # Deployment must run after all methods exist or the stage snapshot omits /{proxy+}.
+        # A new logical id forces a new API Gateway deployment. Updating the
+        # description of the existing one does not, so the stage keeps serving
+        # the old snapshot and ignores binary media types added later.
         deployment = apigw.CfnDeployment(
             self,
-            f"RestApiDeployment{cap}",
+            f"RestApiDeployment{cap}V2",
             rest_api_id=rest_api.ref,
-            description=DESCRIPTION,
+            description=f"{DESCRIPTION} multipart binary",
         )
         deployment.add_dependency(proxy_resource)
         deployment.add_dependency(root_method)
