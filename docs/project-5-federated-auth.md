@@ -104,7 +104,7 @@ Okta, or any other OIDC issuer:
 - id: okta
   name: Okta
   type: oidc
-  cognito_provider_name: Okta
+  provider_name: Okta
   enabled: true
   display_name: Continue with Okta
   icon: okta
@@ -120,7 +120,7 @@ Okta, or any other OIDC issuer:
       username: sub
 ```
 
-A second Okta tenant is another entry with its own `id`, `cognito_provider_name`, issuer, and secret.
+A second Okta tenant is another entry with its own `id`, `provider_name`, issuer, and secret.
 
 Meta uses Cognito's built-in Facebook provider:
 
@@ -128,7 +128,7 @@ Meta uses Cognito's built-in Facebook provider:
 - id: facebook
   name: Meta
   type: social
-  cognito_provider_name: Facebook
+  provider_name: Facebook
   enabled: true
   display_name: Continue with Meta
   icon: facebook

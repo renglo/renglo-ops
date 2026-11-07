@@ -22,7 +22,7 @@ _PUBLIC_FIELDS = (
     "id",
     "name",
     "type",
-    "cognito_provider_name",
+    "provider_name",
     "enabled",
     "display_name",
     "icon",
@@ -34,7 +34,7 @@ providers:
   - id: cognito
     name: Email and Password
     type: native
-    cognito_provider_name: COGNITO
+    provider_name: COGNITO
     enabled: true
     display_name: Email and password
     icon: mail
@@ -42,7 +42,7 @@ providers:
   - id: google
     name: Google
     type: social
-    cognito_provider_name: Google
+    provider_name: Google
     enabled: true
     display_name: Continue with Google
     icon: google
@@ -57,7 +57,7 @@ providers:
   - id: okta
     name: Okta
     type: oidc
-    cognito_provider_name: Okta
+    provider_name: Okta
     enabled: true
     display_name: Continue with Okta
     icon: okta
@@ -84,7 +84,7 @@ class AuthProvider:
     id: str
     name: str
     type: str
-    cognito_provider_name: str
+    provider_name: str
     enabled: bool
     display_name: str
     icon: str = ""
@@ -118,7 +118,7 @@ class ProviderCatalog:
                     "id": item.id,
                     "name": item.name,
                     "type": item.type,
-                    "cognito_provider_name": item.cognito_provider_name,
+                    "provider_name": item.provider_name,
                     "enabled": True,
                     "display_name": item.display_name,
                     "icon": item.icon,
@@ -172,7 +172,7 @@ def cognito_provider_request(provider: AuthProvider) -> dict[str, Any]:
         else:
             details[key] = value
     return {
-        "ProviderName": provider.cognito_provider_name,
+        "ProviderName": provider.provider_name,
         "ProviderType": provider_type,
         "ProviderDetails": details,
         "AttributeMapping": dict(provider.attribute_mapping or _default_attribute_mapping()),
@@ -224,7 +224,9 @@ def _provider(entry: Any, index: int, env_name: str) -> AuthProvider:
         id=provider_id,
         name=name,
         type=provider_type,
-        cognito_provider_name=str(entry.get("cognito_provider_name") or "").strip(),
+        provider_name=str(
+            entry.get("provider_name") or entry.get("cognito_provider_name") or ""
+        ).strip(),
         enabled=bool(entry.get("enabled", False)),
         display_name=str(entry.get("display_name") or name).strip(),
         icon=str(entry.get("icon") or "").strip(),
@@ -251,20 +253,18 @@ def _validate(providers: list[AuthProvider]) -> None:
             raise RengloOpsError(f"provider {provider.id} has unknown type {provider.type}")
         if not provider.enabled:
             continue
-        if not provider.cognito_provider_name:
-            raise RengloOpsError(f"provider {provider.id} is missing cognito_provider_name")
-        if provider.cognito_provider_name in seen_names:
-            raise RengloOpsError(
-                f"duplicate cognito_provider_name {provider.cognito_provider_name}"
-            )
-        seen_names.add(provider.cognito_provider_name)
+        if not provider.provider_name:
+            raise RengloOpsError(f"provider {provider.id} is missing provider_name")
+        if provider.provider_name in seen_names:
+            raise RengloOpsError(f"duplicate provider_name {provider.provider_name}")
+        seen_names.add(provider.provider_name)
         if provider.type == "native":
             continue
         if not provider.secret:
             raise RengloOpsError(f"provider {provider.id} is enabled but has no secret name")
-        if provider.type == "social" and provider.cognito_provider_name not in SOCIAL_PROVIDER_NAMES:
+        if provider.type == "social" and provider.provider_name not in SOCIAL_PROVIDER_NAMES:
             raise RengloOpsError(
-                f"provider {provider.id} social name {provider.cognito_provider_name} "
+                f"provider {provider.id} social name {provider.provider_name} "
                 "is not a Cognito built-in"
             )
         if provider.type == "oidc" and not _oidc_complete(provider):
@@ -283,7 +283,7 @@ def _oidc_complete(provider: AuthProvider) -> bool:
 
 def _cognito_provider_type(provider: AuthProvider) -> str:
     if provider.type == "social":
-        return provider.cognito_provider_name
+        return provider.provider_name
     if provider.type == "oidc":
         return "OIDC"
     if provider.type == "saml":
@@ -303,7 +303,7 @@ def _default_attribute_mapping() -> dict[str, str]:
 
 def _detail_fields(provider: AuthProvider) -> dict[str, Any]:
     scopes = "openid email profile"
-    if provider.type == "social" and provider.cognito_provider_name == "SignInWithApple":
+    if provider.type == "social" and provider.provider_name == "SignInWithApple":
         return {
             "client_id": (_SECRET, "client_id"),
             "team_id": (_SECRET, "team_id"),

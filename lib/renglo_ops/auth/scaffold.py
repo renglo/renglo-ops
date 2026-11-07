@@ -31,7 +31,7 @@ providers:
   - id: cognito
     name: Email and Password
     type: native
-    cognito_provider_name: COGNITO
+    provider_name: COGNITO
     enabled: true
     display_name: Email and password
     icon: mail
@@ -40,7 +40,7 @@ providers:
   - id: google
     name: Google
     type: social
-    cognito_provider_name: Google
+    provider_name: Google
     enabled: true
     display_name: Continue with Google
     icon: google
@@ -57,7 +57,7 @@ providers:
   - id: okta
     name: Okta
     type: oidc
-    cognito_provider_name: Okta
+    provider_name: Okta
     enabled: false
     display_name: Continue with Okta
     icon: okta
@@ -75,7 +75,7 @@ providers:
   - id: facebook
     name: Meta
     type: social
-    cognito_provider_name: Facebook
+    provider_name: Facebook
     enabled: false
     display_name: Continue with Meta
     icon: facebook

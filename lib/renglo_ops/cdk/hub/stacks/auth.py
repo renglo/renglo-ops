@@ -175,12 +175,12 @@ class AuthStack(Construct):
 def _supported_provider(provider: AuthProvider):
     if provider.type == "social":
         try:
-            return _SUPPORTED[provider.cognito_provider_name]
+            return _SUPPORTED[provider.provider_name]
         except KeyError as exc:
             raise ValueError(
                 f"provider {provider.id} is not a Cognito social provider"
             ) from exc
-    return cognito.UserPoolClientIdentityProvider.custom(provider.cognito_provider_name)
+    return cognito.UserPoolClientIdentityProvider.custom(provider.provider_name)
 
 
 def _identity_provider(scope: Construct, user_pool: cognito.UserPool, provider: AuthProvider):
@@ -198,7 +198,7 @@ def _identity_provider(scope: Construct, user_pool: cognito.UserPool, provider: 
         scope,
         f"IdP{safe_id}",
         user_pool_id=user_pool.user_pool_id,
-        provider_name=provider.cognito_provider_name,
+        provider_name=provider.provider_name,
         provider_type=_cfn_provider_type(provider),
         provider_details=details,
         attribute_mapping=dict(provider.attribute_mapping),
@@ -207,7 +207,7 @@ def _identity_provider(scope: Construct, user_pool: cognito.UserPool, provider: 
 
 def _cfn_provider_type(provider: AuthProvider) -> str:
     if provider.type == "social":
-        return provider.cognito_provider_name
+        return provider.provider_name
     if provider.type == "oidc":
         return "OIDC"
     if provider.type == "saml":

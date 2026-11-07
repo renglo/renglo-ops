@@ -23,7 +23,7 @@ def _entry(**overrides):
         "id": "google",
         "name": "Google",
         "type": "social",
-        "cognito_provider_name": "Google",
+        "provider_name": "Google",
         "enabled": True,
         "display_name": "Continue with Google",
         "icon": "google",
@@ -51,7 +51,7 @@ def test_disabled_provider_is_omitted_and_unknown_type_is_refused():
             "id": "cognito",
             "name": "Email and Password",
             "type": "native",
-            "cognito_provider_name": "COGNITO",
+            "provider_name": "COGNITO",
             "enabled": True,
             "display_name": "Email and password",
             "display_order": 0,
@@ -63,7 +63,7 @@ def test_disabled_provider_is_omitted_and_unknown_type_is_refused():
     assert "secret" not in published[0]
 
     with pytest.raises(RengloOpsError, match="unknown type"):
-        _catalog(_entry(id="other", type="ldap", cognito_provider_name="Ldap", enabled=True))
+        _catalog(_entry(id="other", type="ldap", provider_name="Ldap", enabled=True))
 
 
 def test_enabled_provider_without_secret_name_fails():
@@ -77,14 +77,14 @@ def test_same_loader_builds_social_oidc_and_saml_requests():
         _entry(
             id="facebook",
             name="Meta",
-            cognito_provider_name="Facebook",
+            provider_name="Facebook",
             secret="example/renglo/auth/facebook",
         ),
         _entry(
             id="okta",
             name="Okta",
             type="oidc",
-            cognito_provider_name="Okta",
+            provider_name="Okta",
             secret="example/renglo/auth/okta",
             oidc={"issuer": "https://example.okta.com"},
         ),
@@ -92,7 +92,7 @@ def test_same_loader_builds_social_oidc_and_saml_requests():
             id="okta-saml",
             name="Okta SAML",
             type="saml",
-            cognito_provider_name="OktaSAML",
+            provider_name="OktaSAML",
             secret="example/renglo/auth/okta-saml",
             saml={"metadata_url": "https://example.okta.com/metadata"},
         ),
@@ -217,8 +217,30 @@ def test_help_lists_auth_init() -> None:
 
 def test_reference_document_offers_email_google_and_okta():
     published = reference_public_providers()
-    assert [item["cognito_provider_name"] for item in published] == ["COGNITO", "Google", "Okta"]
+    assert [item["provider_name"] for item in published] == ["COGNITO", "Google", "Okta"]
     assert [item["type"] for item in published] == ["native", "social", "oidc"]
     assert all("secret" not in item for item in published)
     assert published[1]["display_name"] == "Continue with Google"
     assert published[2]["display_name"] == "Continue with Okta"
+
+
+def test_legacy_cognito_provider_name_in_yaml_still_loads():
+    catalog = catalog_from_data(
+        {
+            "providers": [
+                {
+                    "id": "google",
+                    "name": "Google",
+                    "type": "social",
+                    "cognito_provider_name": "Google",
+                    "enabled": True,
+                    "display_name": "Continue with Google",
+                    "icon": "google",
+                    "display_order": 10,
+                    "secret": "example/renglo/auth/google",
+                },
+            ]
+        },
+        env_name="example",
+    )
+    assert catalog.external_enabled()[0].provider_name == "Google"
