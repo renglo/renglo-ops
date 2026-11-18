@@ -20,7 +20,11 @@ if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
 from lambda_env import merge_peer_lambda_env  # noqa: E402
-from peers import handlers_lambda_function_name, handlers_unit_name  # noqa: E402
+from peers import (  # noqa: E402
+    handlers_lambda_function_name,
+    handlers_results_bucket_name,
+    handlers_unit_name,
+)
 from prepare_handlers_wheelhouse import runtime_install_specs  # noqa: E402
 
 # CDK seed ZipFile is always named index.py (AWS convention). Real handler zips
@@ -251,6 +255,69 @@ def cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def lambda_code_object_key(function_name: str) -> str:
+    """Object key for one peer function. Each publish overwrites the previous zip."""
+    return f"lambda-code/{function_name}.zip"
+
+
+def publish_lambda_code_commands(
+    *,
+    function_name: str,
+    zip_path: Path,
+    region: str,
+    bucket: str,
+    key: str,
+) -> list[list[str]]:
+    """Upload the zip, then point Lambda at that object.
+
+    ``update-function-code --zip-file`` base64-encodes the body. The API
+    rejects the request once the zip is larger than about 50 MB
+    (``RequestEntityTooLargeException``, limit 70167211 bytes). A single
+    ``PutObject`` stays inside the handlers role, which already has
+    ``s3:PutObject`` and ``s3:GetObject`` on this bucket. Lambda reads the
+    object with the caller's credentials.
+    """
+    return [
+        [
+            "aws",
+            "s3api",
+            "put-object",
+            "--bucket",
+            bucket,
+            "--key",
+            key,
+            "--body",
+            str(zip_path),
+            "--region",
+            region,
+        ],
+        [
+            "aws",
+            "lambda",
+            "update-function-code",
+            "--function-name",
+            function_name,
+            "--s3-bucket",
+            bucket,
+            "--s3-key",
+            key,
+            "--region",
+            region,
+        ],
+    ]
+
+
+def _caller_account() -> str:
+    out = subprocess.check_output(
+        ["aws", "sts", "get-caller-identity", "--query", "Account", "--output", "text"],
+        text=True,
+    )
+    account = out.strip()
+    if not account.isdigit():
+        raise SystemExit(f"could not read the caller account ({account!r})")
+    return account
+
+
 def cmd_publish(args: argparse.Namespace) -> int:
     stage = str(getattr(args, "stage", "") or "").strip().lower()
     try:
@@ -266,19 +333,19 @@ def cmd_publish(args: argparse.Namespace) -> int:
         print(f"zip not found: {zip_path}", file=sys.stderr)
         return 1
     region = args.region or os.environ.get("AWS_REGION") or "us-east-1"
-    _run(
-        [
-            "aws",
-            "lambda",
-            "update-function-code",
-            "--function-name",
-            unit,
-            "--zip-file",
-            f"fileb://{zip_path}",
-            "--region",
-            region,
-        ]
-    )
+    bucket = str(getattr(args, "s3_bucket", "") or "").strip()
+    if not bucket:
+        account = str(getattr(args, "account", "") or "").strip() or _caller_account()
+        bucket = handlers_results_bucket_name(args.env_name, account, args.peer_id)
+    key = lambda_code_object_key(unit)
+    for cmd in publish_lambda_code_commands(
+        function_name=unit,
+        zip_path=zip_path,
+        region=region,
+        bucket=bucket,
+        key=key,
+    ):
+        _run(cmd)
     _wait_function_updated(unit, region)
     extra: dict[str, str] = {}
     env_json = str(getattr(args, "env_json", "") or "").strip()
@@ -391,11 +458,21 @@ def main() -> int:
     )
     b.add_argument("--local", action="store_true", help="linux/arm64 :local tag")
 
-    p = sub.add_parser("publish", help="Update peer Lambda code from zip")
+    p = sub.add_parser("publish", help="Update peer Lambda code from a zip in S3")
     add_identity(p)
     p.add_argument("--zip", required=True)
     p.add_argument("--region", default="")
     p.add_argument("--stage", required=True, choices=("staging", "production"))
+    p.add_argument(
+        "--account",
+        default="",
+        help="Account that owns the peer results bucket. Defaults to the caller.",
+    )
+    p.add_argument(
+        "--s3-bucket",
+        default="",
+        help="Bucket for the deployment zip. Defaults to {env}-peer-{id}-ecs-{account}.",
+    )
     p.add_argument(
         "--env-json",
         default="",

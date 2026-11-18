@@ -19,6 +19,7 @@ for _p in (_release, _HERE):
         sys.path.insert(0, str(_p))
 
 from lambda_env import peer_base_env  # noqa: E402
+from peers import handlers_results_bucket_name  # noqa: E402
 from extension_actions import (  # noqa: E402
     extra_action_roots,
     load_extension_config,
@@ -160,10 +161,6 @@ def handlers_policy_name(env_name: str, peer_id: str | None = None) -> str:
         unit = handlers_unit_name(env_name, peer_id)
         return f"{unit[0].upper()}{unit[1:]}Policy"
     return f"{env_name[0].upper()}{env_name[1:]}HandlersPolicy"
-
-
-def handlers_results_bucket_name(env_name: str, account: str, peer_id: str | None = None) -> str:
-    return f"{handlers_unit_name(env_name, peer_id)}-ecs-{account}"
 
 
 def _handlers_managed_policy_document(

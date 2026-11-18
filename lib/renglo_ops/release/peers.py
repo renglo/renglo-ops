@@ -50,6 +50,18 @@ def handlers_lambda_function_name(
     return f"{unit}-{chosen}"
 
 
+def handlers_results_bucket_name(env_name: str, account: str, peer_id: str | None = None) -> str:
+    """S3 bucket the peer stack creates for handler payloads.
+
+    Lambda publish uploads the deployment zip here. Direct ``--zip-file``
+    uploads are base64-encoded and fail once the zip passes about 50 MB.
+    """
+    acct = (account or "").strip()
+    if not acct:
+        raise ValueError("account is required")
+    return f"{handlers_unit_name(env_name, peer_id)}-ecs-{acct}"
+
+
 def handlers_unit_name(env_name: str, peer_id: str | None = None) -> str:
     """CloudFormation / Lambda / ECS resource stem.
 
