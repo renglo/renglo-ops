@@ -52,6 +52,7 @@ def cmd_wl_check(start: Path) -> int:
         diff_wl_repos(workspace),
         ok=f"White-label workflows and package configs match renglo-ops ({names})",
         sync_command="renglo wl sync",
+        fixable_kinds={IssueKind.MISSING, IssueKind.CHANGED, IssueKind.STALE, IssueKind.CONFIG},
     )
 
 
@@ -79,16 +80,21 @@ def _print_changed(changed: list[tuple[Path, str, str]], *, dry_run: bool, alrea
         print(f"{label} {repo.name}/{rel}")
 
 
-def _report(issues: list, *, ok: str, sync_command: str) -> int:
+def _report(
+    issues: list,
+    *,
+    ok: str,
+    sync_command: str,
+    fixable_kinds: set[IssueKind] | None = None,
+) -> int:
     if not issues:
         print(ok)
         return 0
     print("Drift:")
     for issue in issues:
         print(f"  {issue.kind.value:<8} {issue.display()}")
-    fixable = any(
-        issue.kind in {IssueKind.MISSING, IssueKind.CHANGED, IssueKind.STALE} for issue in issues
-    )
+    kinds = fixable_kinds or {IssueKind.MISSING, IssueKind.CHANGED, IssueKind.STALE}
+    fixable = any(issue.kind in kinds for issue in issues)
     if fixable:
         print(f"Run: {sync_command}")
     git = [issue for issue in issues if issue.kind is IssueKind.GIT]

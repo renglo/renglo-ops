@@ -247,7 +247,7 @@ def split_master_bom(
     peer_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, dict[str, Any]]]:
     """Return ``(hub_bom, console_bom, {peer_id: peer_bom})``."""
-    meta_keys = ("version", "created_at", "description", "train")
+    meta_keys = ("version", "created_at", "description", "train", "platform")
     meta = {key: master[key] for key in meta_keys if key in master}
 
     all_python = master.get("python") if isinstance(master.get("python"), dict) else {}

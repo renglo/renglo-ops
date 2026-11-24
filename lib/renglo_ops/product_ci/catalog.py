@@ -1,10 +1,10 @@
 """Compare extension and white-label checkouts to the files bundled in renglo-ops.
 
 Extension repos share one publish workflow. A white-label repo (``*-wl``)
-shares two publish workflows plus ``wl_build.py``. Sync also fills a missing
-``[tool.renglo] platform`` and ``renglo.platform`` from the tenant ``platform``.
-Other package fields stay in the product repo; this module only checks that
-the fields a release needs are present.
+shares two publish workflows plus ``wl_build.py``. Sync fills a missing
+``[tool.renglo] platform`` and ``renglo.platform`` from the tenant ``platform``,
+and renames the packages to the checkout: ``acme-wl`` and ``@acme/wl``.
+Other package fields stay in the product repo.
 """
 
 from __future__ import annotations
@@ -169,25 +169,125 @@ def sync_extensions(workspace: Path, *, dry_run: bool = False) -> list[tuple[Pat
     return changed
 
 
+def wl_dist_names(repo: Path) -> tuple[str, str] | None:
+    """Python and npm names for a ``<namespace>-wl`` checkout.
+
+    ``dev/ultrahost-wl`` is Python ``ultrahost-wl`` and npm ``@ultrahost/wl``.
+    """
+    folder = repo.name
+    suffix = "-wl"
+    if not folder.endswith(suffix) or len(folder) <= len(suffix):
+        return None
+    namespace = folder[: -len(suffix)]
+    return folder, f"@{namespace}/wl"
+
+
 def sync_wl_repos(workspace: Path, *, dry_run: bool = False) -> list[tuple[Path, str, str]]:
-    """Copy shared white-label workflows and wl_build.py, and fill a missing platform pin."""
+    """Copy shared white-label workflows and align package name and platform."""
     changed: list[tuple[Path, str, str]] = []
     platform = _tenant_platform(workspace)
     for repo in find_wl_repos(workspace):
         changed.extend(_sync_templates(repo, "wl", WL_TEMPLATES, dry_run=dry_run))
+        changed.extend(_heal_wl_names(repo, dry_run=dry_run))
         changed.extend(_heal_wl_platform(repo, platform, dry_run=dry_run))
+    unique: list[tuple[Path, str, str]] = []
+    seen: set[tuple[Path, str, str]] = set()
+    for row in changed:
+        if row in seen:
+            continue
+        seen.add(row)
+        unique.append(row)
+    return unique
+
+
+def _heal_wl_names(repo: Path, *, dry_run: bool) -> list[tuple[Path, str, str]]:
+    names = wl_dist_names(repo)
+    if names is None:
+        return []
+    python_name, npm_name = names
+    changed: list[tuple[Path, str, str]] = []
+    if _ensure_pyproject_name(repo / "pyproject.toml", python_name, dry_run=dry_run):
+        changed.append((repo, "write", "pyproject.toml"))
+    if _ensure_package_json_name(repo / "package.json", npm_name, dry_run=dry_run):
+        changed.append((repo, "write", "package.json"))
     return changed
 
 
+def _ensure_pyproject_name(path: Path, name: str, *, dry_run: bool) -> bool:
+    if not path.is_file():
+        return False
+    text = path.read_text(encoding="utf-8")
+    try:
+        data = tomllib.loads(text)
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    project = data.get("project") if isinstance(data, dict) and isinstance(data.get("project"), dict) else {}
+    if str(project.get("name") or "").strip() == name:
+        return False
+    block = re.search(r"(?ms)^\[project\]\n(.*?)(?=^\[|\Z)", text)
+    if block is None:
+        return False
+    section = block.group(0)
+    new_section, count = re.subn(
+        r"(?m)^name\s*=\s*(['\"]).*?\1",
+        f'name = "{name}"',
+        section,
+        count=1,
+    )
+    if count != 1:
+        return False
+    if not dry_run:
+        path.write_text(text[: block.start()] + new_section + text[block.end() :], encoding="utf-8")
+    return True
+
+
+def _ensure_package_json_name(path: Path, name: str, *, dry_run: bool) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(data, dict) or str(data.get("name") or "").strip() == name:
+        return False
+    data["name"] = name
+    if not dry_run:
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return True
+
+
 def _tenant_platform(workspace: Path) -> str:
+    path = _tenant_file(workspace)
+    if path is None:
+        return ""
+    from renglo_ops.model.tenant import load_tenant
+
+    return load_tenant(path).platform.strip()
+
+
+def _tenant_file(workspace: Path) -> Path | None:
+    """The BOM ``renglo.yaml`` for this workspace.
+
+    The machine file often lives in a child checkout (``ops/.renglo``) while
+    ``dev/`` sits at the product root. A walk upward from that root misses it.
+    """
     from renglo_ops.model.errors import RengloOpsError
-    from renglo_ops.model.tenant import find_tenant_file, load_tenant
+    from renglo_ops.model.tenant import find_tenant_file
 
     try:
-        path = find_tenant_file(workspace)
+        return find_tenant_file(workspace)
     except RengloOpsError:
-        return ""
-    return load_tenant(path).platform.strip()
+        pass
+    if not workspace.is_dir():
+        return None
+    for child in sorted(workspace.iterdir(), key=lambda path: path.name):
+        if not child.is_dir() or not (child / ".renglo" / "local.yaml").is_file():
+            continue
+        try:
+            return find_tenant_file(child)
+        except RengloOpsError:
+            continue
+    return None
 
 
 def _heal_wl_platform(
@@ -275,7 +375,12 @@ def _sync_templates(
     return written
 
 
-def summarize_issues(issues: list[Issue], *, sync_command: str) -> tuple[str, bool]:
+def summarize_issues(
+    issues: list[Issue],
+    *,
+    sync_command: str,
+    repair_kinds: set[IssueKind] | None = None,
+) -> tuple[str, bool]:
     """Return ``(detail, failed)``. ``failed`` is true when a canonical file is not in git."""
     if not issues:
         return "", False
@@ -300,9 +405,8 @@ def summarize_issues(issues: list[Issue], *, sync_command: str) -> tuple[str, bo
     if len(shown) > 4:
         sample += ", …"
     detail = f"{'; '.join(parts)} ({sample})"
-    if sync_command and any(
-        issue.kind in {IssueKind.MISSING, IssueKind.CHANGED, IssueKind.STALE} for issue in issues
-    ):
+    kinds = repair_kinds or {IssueKind.MISSING, IssueKind.CHANGED, IssueKind.STALE}
+    if sync_command and any(issue.kind in kinds for issue in issues):
         detail += f"; run {sync_command}"
     git_by_repo: dict[str, list[str]] = {}
     for issue in issues:
@@ -359,10 +463,23 @@ def _extension_config_issues(repo: Path) -> list[Issue]:
 
 def _wl_config_issues(repo: Path) -> list[Issue]:
     """Package name, version, and platform. Membership lives in the BOM ``renglo.yaml``."""
+    names = wl_dist_names(repo)
+    python_name = names[0] if names else ""
+    npm_name = names[1] if names else ""
     issues: list[Issue] = []
-    issues.extend(_pyproject_issues(repo, repo / "pyproject.toml", "pyproject.toml"))
     issues.extend(
-        _package_json_issues(repo, repo / "package.json", "package.json", require_files=())
+        _pyproject_issues(
+            repo, repo / "pyproject.toml", "pyproject.toml", expected_name=python_name
+        )
+    )
+    issues.extend(
+        _package_json_issues(
+            repo,
+            repo / "package.json",
+            "package.json",
+            require_files=(),
+            expected_name=npm_name,
+        )
     )
     return issues
 
@@ -373,6 +490,7 @@ def _pyproject_issues(
     rel: str,
     *,
     require_blueprints: bool = False,
+    expected_name: str = "",
 ) -> list[Issue]:
     if not path.is_file():
         return [Issue(repo, rel, IssueKind.CONFIG, "missing")]
@@ -384,8 +502,18 @@ def _pyproject_issues(
         return [Issue(repo, rel, IssueKind.CONFIG, "not a table")]
     project = data.get("project") if isinstance(data.get("project"), dict) else {}
     issues: list[Issue] = []
-    if not str(project.get("name") or "").strip():
+    current_name = str(project.get("name") or "").strip()
+    if not current_name:
         issues.append(Issue(repo, rel, IssueKind.CONFIG, "missing [project] name"))
+    elif expected_name and current_name != expected_name:
+        issues.append(
+            Issue(
+                repo,
+                rel,
+                IssueKind.CONFIG,
+                f"name is {current_name!r}, repo requires {expected_name!r}",
+            )
+        )
     if not str(project.get("version") or "").strip():
         issues.append(Issue(repo, rel, IssueKind.CONFIG, "missing [project] version"))
     tool = data.get("tool") if isinstance(data.get("tool"), dict) else {}
@@ -416,6 +544,7 @@ def _package_json_issues(
     rel: str,
     *,
     require_files: tuple[str, ...],
+    expected_name: str = "",
 ) -> list[Issue]:
     if not path.is_file():
         return [Issue(repo, rel, IssueKind.CONFIG, "missing")]
@@ -426,8 +555,18 @@ def _package_json_issues(
     if not isinstance(data, dict):
         return [Issue(repo, rel, IssueKind.CONFIG, "not an object")]
     issues: list[Issue] = []
-    if not str(data.get("name") or "").strip():
+    current_name = str(data.get("name") or "").strip()
+    if not current_name:
         issues.append(Issue(repo, rel, IssueKind.CONFIG, "missing name"))
+    elif expected_name and current_name != expected_name:
+        issues.append(
+            Issue(
+                repo,
+                rel,
+                IssueKind.CONFIG,
+                f"name is {current_name!r}, repo requires {expected_name!r}",
+            )
+        )
     if not str(data.get("version") or "").strip():
         issues.append(Issue(repo, rel, IssueKind.CONFIG, "missing version"))
     renglo = data.get("renglo") if isinstance(data.get("renglo"), dict) else {}

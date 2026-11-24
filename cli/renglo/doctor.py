@@ -1034,7 +1034,11 @@ def _product_repo_checks(ws: Path) -> list[Check]:
                     )
                 )
             if config:
-                detail, _failed = summarize_issues(config, sync_command="")
+                detail, _failed = summarize_issues(
+                    config,
+                    sync_command="renglo wl sync",
+                    repair_kinds={IssueKind.CONFIG},
+                )
                 checks.append(
                     Check(
                         "Projects",

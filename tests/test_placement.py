@@ -3,6 +3,7 @@ from renglo_ops.model.placement import (
     placement_hub_missing_packages,
     resolve_package_handle,
     wl_npm_package,
+    wl_package_name,
 )
 
 
@@ -34,5 +35,12 @@ def test_wl_npm_package_is_the_scoped_wl_name() -> None:
     }
     assert wl_npm_package(packages) == "@liga/wl"
     assert wl_npm_package(_packages()) == ""
-    rendered = _render_env_development({}, api_local_url="http://127.0.0.1:5001", ws_local_url="ws://127.0.0.1:8080", wl_npm="@liga/wl")
+    assert wl_package_name("liga") == "@liga/wl"
+    assert wl_package_name("") == "@renglo/wl"
+    rendered = _render_env_development(
+        {},
+        api_local_url="http://127.0.0.1:5001",
+        ws_local_url="ws://127.0.0.1:8080",
+        wl_npm=wl_package_name("liga"),
+    )
     assert 'VITE_WL_PACKAGE="@liga/wl"' in rendered

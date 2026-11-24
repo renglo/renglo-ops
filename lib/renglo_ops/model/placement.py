@@ -47,6 +47,13 @@ def wl_npm_package(packages: dict[str, Any]) -> str:
     return ""
 
 
+def wl_package_name(namespace: str) -> str:
+    """Console white-label package for this tenant, ``@<namespace>/wl``."""
+    from renglo_ops.target_role import normalize_namespace
+
+    return f"@{normalize_namespace(namespace)}/wl"
+
+
 def placement_hub_missing_packages(
     packages: dict[str, Any],
     placement_hub: list[str],

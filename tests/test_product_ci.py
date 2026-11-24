@@ -142,6 +142,65 @@ def test_wl_sync_command_prefixes_repo(tmp_path: Path, capsys) -> None:
     assert "Wrote acme-wl/wl_build.py" in out
 
 
+def test_wl_sync_aligns_names_with_the_repo(tmp_path: Path) -> None:
+    repo = _wl(tmp_path)
+    pyproject = (repo / "pyproject.toml").read_text(encoding="utf-8")
+    (repo / "pyproject.toml").write_text(pyproject.replace('name = "acme-wl"', 'name = "example-wl"'), encoding="utf-8")
+    package = json.loads((repo / "package.json").read_text(encoding="utf-8"))
+    package["name"] = "@example/wl"
+    (repo / "package.json").write_text(json.dumps(package, indent=2) + "\n", encoding="utf-8")
+
+    details = [issue.detail for issue in diff_wl(repo) if issue.kind is IssueKind.CONFIG]
+    assert any("example-wl" in detail and "acme-wl" in detail for detail in details)
+    assert any("@example/wl" in detail and "@acme/wl" in detail for detail in details)
+
+    sync_wl_repos(tmp_path)
+    assert 'name = "acme-wl"' in (repo / "pyproject.toml").read_text(encoding="utf-8")
+    assert json.loads((repo / "package.json").read_text(encoding="utf-8"))["name"] == "@acme/wl"
+    assert [issue for issue in diff_wl(repo) if issue.kind is IssueKind.CONFIG] == []
+
+
+def test_wl_sync_reads_platform_from_a_child_machine_file(tmp_path: Path) -> None:
+    ops = tmp_path / "ops"
+    (ops / ".renglo").mkdir(parents=True)
+    (ops / ".renglo" / "local.yaml").write_text(
+        "tenant: acme-bom\nprofile: maker\nregion: us-east-1\n",
+        encoding="utf-8",
+    )
+    bom = ops / "acme-bom"
+    bom.mkdir()
+    (bom / "renglo.yaml").write_text(
+        "\n".join(
+            [
+                "name: acme",
+                "github:",
+                "  repo: acme/bom",
+                "email:",
+                "  from: noreply@example.com",
+                "  identity: email",
+                "platform: 0.1.11",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    repo = _wl(tmp_path)
+    (repo / "pyproject.toml").write_text(
+        '[project]\nname = "example-wl"\nversion = "0.0.1"\n',
+        encoding="utf-8",
+    )
+    (repo / "package.json").write_text(
+        json.dumps({"name": "@example/wl", "version": "0.0.1"}) + "\n",
+        encoding="utf-8",
+    )
+    sync_wl_repos(tmp_path)
+    assert 'name = "acme-wl"' in (repo / "pyproject.toml").read_text(encoding="utf-8")
+    assert '[tool.renglo]\nplatform = "0.1.11"' in (repo / "pyproject.toml").read_text(encoding="utf-8")
+    package = json.loads((repo / "package.json").read_text(encoding="utf-8"))
+    assert package["name"] == "@acme/wl"
+    assert package["renglo"]["platform"] == "0.1.11"
+
+
 def test_wl_sync_fills_missing_platform_from_the_tenant(tmp_path: Path) -> None:
     (tmp_path / "renglo.yaml").write_text(
         "\n".join(

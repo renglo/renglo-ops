@@ -413,11 +413,20 @@ def _run_cdk(
     return subprocess.run(deploy, env=env, cwd=workspace).returncode
 
 
+def _record_github_ids(tenant, *, dry_run: bool) -> None:
+    """The OIDC role is created by this deploy. Its trust needs the ids first."""
+    from renglo_ops.release.bom_setup import ensure_github_ids
+
+    for note in ensure_github_ids(tenant.path, dry_run=dry_run):
+        print(note)
+
+
 def _cmd_stack(args: argparse.Namespace) -> int:
     from renglo.operate import hub_stack_name, parse_stacks
     from renglo_ops.target_role import ensure_bootstrap_policies
 
     tenant = _tenant_from_env()
+    _record_github_ids(tenant, dry_run=args.dry_run)
     profile, region = _profile_region()
     region = (getattr(args, "region", "") or region or tenant.primary_account().region).strip()
     names = [hub_stack_name(tenant.name, part) for part in parse_stacks(args.stack)]
@@ -451,6 +460,7 @@ def _cmd_stack(args: argparse.Namespace) -> int:
 
 def _cmd_peer(args: argparse.Namespace) -> int:
     tenant = _tenant_from_env()
+    _record_github_ids(tenant, dry_run=args.dry_run)
     profile, region = _profile_region()
     region = (getattr(args, "region", "") or region or tenant.primary_account().region).strip()
     extra = {"RENGLO_TENANT": str(tenant.path)}
@@ -1087,6 +1097,13 @@ def main(argv: list[str] | None = None) -> int:
     bom_wf_sync = bom_wf_sub.add_parser("sync", help="Copy canonical workflow files into the BOM repo")
     bom_wf_sync.add_argument("--bom", default="", help="BOM repo root (default: resolved tenant)")
     bom_wf_sync.add_argument("--dry-run", action="store_true")
+    bom_setup = bom_sub.add_parser(
+        "setup",
+        help="Fill platform packages, pin files, and GitHub ids in the BOM repo",
+    )
+    bom_setup.add_argument("--bom", default="", help="BOM repo root (default: resolved tenant)")
+    bom_setup.add_argument("--dry-run", action="store_true")
+    bom_setup.add_argument("--force", action="store_true", help="Replace pin files that already exist")
 
     registry = sub.add_parser("registry")
     registry_sub = registry.add_subparsers(dest="registry_cmd")
@@ -1140,6 +1157,25 @@ def main(argv: list[str] | None = None) -> int:
                 return cmd_check(bom_root)
             if args.bom_wf_cmd == "sync":
                 return cmd_sync(bom_root, dry_run=args.dry_run)
+        if args.cmd == "bom" and args.bom_cmd == "setup":
+            from renglo.bom_workflows import resolve_bom_root
+            from renglo_ops.release.bom_setup import setup_bom
+
+            bom_root = resolve_bom_root(Path.cwd(), args.bom)
+            profile, region = _profile_region()
+            session = _aws_session(profile, region)
+            if not region:
+                region = session.region_name or ""
+            account = session.client("sts").get_caller_identity()["Account"]
+            for line in setup_bom(
+                bom_root,
+                dry_run=args.dry_run,
+                force=args.force,
+                codeartifact=session.client("codeartifact"),
+                account_id=str(account),
+            ):
+                print(line)
+            return 0
         if args.cmd == "status":
             return _cmd_status(args)
         if args.cmd == "state" and args.state_cmd == "show":

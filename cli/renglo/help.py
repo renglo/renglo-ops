@@ -87,7 +87,7 @@ SECTIONS: list[Section] = [
             ),
             (
                 "renglo stack deploy",
-                "Synth and deploy the hub stacks.",
+                "Record GitHub ids, then synth and deploy the hub stacks.",
             ),
             (
                 "renglo state local-config",
@@ -100,6 +100,10 @@ SECTIONS: list[Section] = [
             (
                 "renglo state local-config --apply",
                 "Write env_config.py, run.sh, and the console env into the product workspace.",
+            ),
+            (
+                "renglo bom setup",
+                "Write the BOM, pin each package to its newest stable published version, and record the checked-out renglo-ops version.",
             ),
         ],
     ),
@@ -184,6 +188,10 @@ SECTIONS: list[Section] = [
         "Deploy what the BOM repository describes",
         [
             (
+                "renglo bom setup",
+                "Write the BOM, pin each package to its newest stable published version, and record the checked-out renglo-ops version.",
+            ),
+            (
                 "renglo bom workflows check",
                 "Compare this BOM repo's GitHub Actions files with the bundle in renglo-ops.",
             ),
@@ -213,7 +221,7 @@ SECTIONS: list[Section] = [
             ),
             (
                 "renglo stack deploy",
-                "Synth and deploy the hub stacks.",
+                "Record GitHub ids, then synth and deploy the hub stacks.",
             ),
             (
                 "renglo peer deploy --peer-id PEER",

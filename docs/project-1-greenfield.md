@@ -1,6 +1,6 @@
 # Project 1 — Greenfield infrastructure
 
-Goal: every AWS service for one environment is operational, and the config files for running the product outside the cloud exist. Nothing here involves CI/CD, registries you host, or extensions.
+Goal: every AWS service for one environment is operational, the config files for running the product outside the cloud exist, and the hub is running the current platform code. Nothing here involves a release train. The registry you host, and the white-label package that goes on it, are Project 2.
 
 Prerequisite: [configuration.md](configuration.md).
 
@@ -15,7 +15,7 @@ When this project is done you have a hub in one AWS account — auth, mail, stor
 | `{env}` stack A | Core platform: Cognito, SES identity, storage, identity tables, the API |
 | `{env}` stack B | Hub-side extension infrastructure. Empty of extensions until Project 3 |
 
-Stack A also creates the GitHub OIDC provider in that account when the account does not already have one. That trust names `github.repo` from `renglo.yaml`, which is why the BOM repository is decided now even though the pipeline is Project 4.
+Stack A also creates the GitHub OIDC provider in that account when the account does not already have one. That trust names `github.repo` from `renglo.yaml`, which is why the BOM repository is decided now even though the pipeline is Project 4. The deploy records `github.owner_id` and `github.repo_id` before it creates the role, so the trust includes the immutable subject GitHub sends for this repository.
 
 ---
 
@@ -47,7 +47,7 @@ renglo init --bom path/to/<env>-bom
 
 It asks for the environment name, the BOM repository, the system email address and identity type, the AWS account and region, and the profile on this machine, then writes `renglo.yaml` beside the manifests and `.renglo/local.yaml` for this machine. Every question is also a flag, and the field-by-field reference is in [configuration.md](configuration.md).
 
-For this project that file is complete as written: `registries`, `packages`, and `placement` stay empty. A hub with no extensions deploys, and Projects 2 and 3 fill those in later.
+That file is enough to deploy the hub. `registries`, `packages`, and `placement` can stay empty until the stacks exist. Section 7 fills the platform packages and puts that code on the hub. Project 2 adds the white-label package. Project 3 adds anything beyond data and schd.
 
 Commit `renglo.yaml` and push it. The pipeline reads it later; more immediately, it is the record of what this environment is supposed to be.
 
@@ -68,9 +68,11 @@ renglo stack deploy --dry-run
 renglo stack deploy
 ```
 
-`--dry-run` prints the `cdk deploy` and calls nothing. A real deploy runs `cdk deploy --app "python -m renglo_ops.cdk.hub"`. The CDK CLI reads `cdk.context.json` from the workspace, looks up any key that is still missing, and then applies the stacks. Templates land in `<workspace>/.renglo/cdk.out`, which is gitignored. `cdk` must be on `PATH`.
+`--dry-run` prints the GitHub ids it would record and the `cdk deploy` command, and does not call AWS. A real deploy runs `cdk deploy --app "python -m renglo_ops.cdk.hub"`. The CDK CLI reads `cdk.context.json` from the workspace, looks up any key that is still missing, and then applies the stacks. Templates land in `<workspace>/.renglo/cdk.out`, which is gitignored. `cdk` must be on `PATH`.
 
 `--profile NAME` overrides the profile in `.renglo/local.yaml` for one run.
+
+Before the template is applied, the deploy looks up `github.owner_id` and `github.repo_id` when either is blank (`gh api repos/ORG/REPO`) and writes them into `renglo.yaml`. `gh` has to be logged in (`gh auth login`). The OIDC role is then created with both subjects: `repo:ORG/REPO:environment:staging` and `repo:ORG@OWNER/REPO@ID:environment:staging`. Repositories created after 15 Jul 2026 present the second one, so a role built without the ids rejects the later pipeline run. `renglo bom setup` runs after this deploy and leaves the ids in place.
 
 ## 5. Confirm the environment answers
 
@@ -101,6 +103,41 @@ Secrets already present in `env_config.py` are kept, so re-running does not wipe
 
 Whoever writes application code takes these files into their own setup. They do not need this venv, an AWS profile, or the CDK.
 
+## 7. Deploy the current platform code
+
+Stack deploy leaves a seed image in the backend Lambda. The environment is up when that function runs the current platform packages instead: `renglo-ops` (the `platform` pin), `renglo-lib`, `renglo-api`, `renglo-data`, and `renglo-schd`.
+
+`renglo bom setup` writes that into the BOM repository. It fills a still-empty catalog so `renglo.yaml` carries:
+
+| Section | What it writes when the section is empty |
+| --- | --- |
+| `platform` | The checked-out `renglo-ops` version, from `lib/pyproject.toml`. The same value is written into each manifest |
+| `release.bom`, `release.console` | `0.0.1` when this is the first BOM. These name the manifest files. They are not package versions |
+| `registries` | This tenant's domain, and the `renglo` domain |
+| `packages` | `renglo-lib`, `renglo-api`, `@renglo/console`, `<namespace>-wl`, `data`, `schd` |
+| `placement.hub` | `data` and `schd` |
+
+The AWS profile has to be able to read the registries in `renglo.yaml`. Sections you already filled are left as they are, including the GitHub ids stack deploy recorded. The command then writes `bom/vX.Y.Z.json` and `console_bom/vX.Y.Z.json`. Each manifest is `bom/vX.Y.Z.json` and `console_bom/vX.Y.Z.json`, and each one carries `platform` set to that checked-out `renglo-ops` version. A repository with no earlier manifest starts at `v0.0.1`. A file named only after the platform version does not count as an earlier BOM. Each package inside the file is pinned to the newest Published version that is not a release candidate (`0.0.20rc2` and `0.0.25-rc.2` are skipped). An npm scope selects the registry row, and a Python name selects the domain it starts with (`renglo-lib` is the `renglo` domain, `<namespace>-wl` is this tenant's domain). `--dry-run` prints those versions and does not write.
+
+```bash
+renglo bom setup --dry-run
+renglo bom setup
+```
+
+A package with no stable Published version is left out of the pin file and named in the output. `<namespace>-wl` is published in Project 2; run `renglo bom setup` again after it is on the shelf and it will be pinned.
+
+Push the BOM repository and run **Deploy Backend** (`deploy.yml`) from the Actions tab, or let the push start it. The workflow checks out this repo, installs `renglo-ops` at `platform`, downloads the pins, builds the image, and shifts it onto the Lambda alias. That is the code deploy. The seed image is no longer what answers the API.
+
+```bash
+git add renglo.yaml bom/ console_bom/ .github/
+git commit -m "Pin the platform packages"
+git push origin main
+```
+
+`.github/` has to be in that commit. `renglo doctor` fails while `.github/scripts/` exists on disk but is not tracked, and the workflow exits on the same check. A root `.gitignore` line `scripts` also hides `.github/scripts/`; the line that ignores only a top-level helper directory is `/scripts`.
+
+Greenfield is done when that workflow succeeds. The API is running the platform version you just pinned.
+
 ---
 
 ## Coming back to this project
@@ -109,6 +146,7 @@ Whoever writes application code takes these files into their own setup. They do 
 | --- | --- |
 | Core platform settings changed in `renglo.yaml` | `renglo stack deploy` |
 | API URL or user pool changed | `renglo state local-config --apply`, then redistribute the files |
+| A newer published package should be what the hub runs | `renglo bom setup`, push, and let Deploy Backend run |
 | A second account becomes real | Fill `accounts.production`, set `enabled: true`, bootstrap it, deploy with that profile |
 
 ---

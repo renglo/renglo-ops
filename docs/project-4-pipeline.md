@@ -36,7 +36,7 @@ After sync, always `git add .github/` and commit so GitHub Actions sees the same
 
 ## 1. Finish the OIDC trust
 
-CI authenticates to AWS with GitHub OIDC, and the trust comes from `renglo.yaml`, not from a remote URL. Fill both ids:
+CI authenticates to AWS with GitHub OIDC, and the trust comes from `renglo.yaml`, not from a remote URL. `renglo stack deploy` writes both ids before it creates the role:
 
 ```yaml
 github:
@@ -45,14 +45,16 @@ github:
   repo_id: '1392981742'
 ```
 
-`owner_id` and `repo_id` are GitHub's immutable numeric ids. Repositories created after 15 Jul 2026 present the immutable subject (`repo:org@id/name@id`) to AWS, so a role built without them will reject the run.
+`owner_id` and `repo_id` are GitHub's immutable numeric ids. Repositories created after 15 Jul 2026 present the immutable subject (`repo:org@id/name@id`) to AWS. The first stack deploy records them, so the role trusts that subject from the start. `renglo bom setup` runs later and does not create the role.
+
+A role that was deployed before the ids existed still rejects the run. The ids are already in `renglo.yaml`; redeploy stack A so the live trust picks them up:
 
 ```bash
 renglo config check
-renglo stack deploy
+renglo stack deploy --stack a
 ```
 
-`config check` compares `github.repo` with the checkout's `origin`. The deploy is what teaches the roles to trust the repository.
+`config check` compares `github.repo` with the checkout's `origin`.
 
 ## 2. Set the pins the pipeline deploys
 

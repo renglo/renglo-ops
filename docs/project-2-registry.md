@@ -77,7 +77,7 @@ There is a fourth thing that is the goal of publishing a packate to a repository
 
 **The developer gives the operator** one value: the **short GitHub name of the repository** that needs to publish (e.g: `acme-data`, for `acmeorg/acme-data`. Until the operator adds that name to `publish_repos` and redeploys, the repo is not welcome on the registry and its tags will fail to assume the role.
 
-After that single exchange the operator is out of the loop. The developer tags a release, GitHub Actions publishes, and nobody asks anyone for anything.
+After that single exchange the operator is out of the loop. The developer tags a release, GitHub Actions publishes, and nobody asks anyone for anything. The first `<namespace>-wl` release is the exception: the operator publishes that version so the Project 1 deploy can install it, then hands the repository over.
 
 It is important to mention that the registry is linked to a single github org (this was setup on Process 1 when the Operator was setting up the registry) and that it can only publish repos that belong to that org. It is assumed that both the operator and the developer work for the same organization. In future version, it might be possible to have a registry from different github accounts but not at the moment. 
 
@@ -86,6 +86,8 @@ It is important to mention that the registry is linked to a single github org (t
 A developer can build an extension for weeks without needing any of this. Local development installs from the working tree; nothing is published. The need appears when the extension **graduates** — when a staging or production environment has to install it by version rather than run it off a branch.
 
 So treat Process 2 as part of that graduation, not as part of starting a new extension.
+
+The white-label repository is the exception. Project 1 deploys the hub and the platform packages, and leaves `<namespace>-wl` out because it is not published yet. The operator publishes that first version in [the section below](#operator-publish-the-first-namespace-wl), then hands the repository to the developers.
 
 ---
 
@@ -249,15 +251,72 @@ That workflow runs on pushed `v*` tags and on manual dispatch, and publishes whi
 
 A missing tree skips that job; one tag can publish both. Repo-root `blueprints/*.json` are copied into the Python package before the build.
 
-**White-label.** `renglo wl sync` looks under `dev/` and at the workspace root for a directory named `wl` or ending in `-wl`. It writes `.github/workflows/publish-python.yml`, `.github/workflows/publish-npm.yml`, and `wl_build.py`. When `[tool.renglo] platform` or `renglo.platform` is missing, it fills that pin from `platform` in `renglo.yaml`.
+**White-label.** Do not run `renglo wl sync` yet. It looks under `dev/` and at the workspace root for a directory named `wl` or ending in `-wl`, and that checkout does not exist until the next section clones it. Once the directory is there, the command writes `.github/workflows/publish-python.yml`, `.github/workflows/publish-npm.yml`, and `wl_build.py`. It also aligns the package names with that directory (`ultrahost-wl` and `@ultrahost/wl`) and, when `[tool.renglo] platform` or `renglo.platform` is missing, fills that pin from `platform` in `renglo.yaml`. Those workflows run on pushed `v*` tags and on manual dispatch, and they use the same three Actions variables. `publish-python.yml` builds the wheel, staging `locales/` and `assets/` through `wl_build.py`. `publish-npm.yml` publishes the npm package. The commands themselves are in step 4 below, after the clone.
+
+### Operator: publish the first `<namespace>-wl`
+
+Project 1 leaves a deployment that does not install a white-label pack. `renglo bom setup` names `<namespace>-wl` and `@<namespace>/wl` in the catalog and leaves both out of the pin files until a stable version is Published. The console and the backend install that pack beside the platform packages, so the environment is finished when this step has run and the BOM has been pushed again.
+
+The operator publishes that first version. After the tag is on the shelf and Deploy Backend has picked it up, the repository is the developers'.
+
+**1. Create the repository and clone it under `dev/`.** The repository is named `<namespace>-wl` (namespace `ultrahost` is `ultrahost-wl`). Clone it into the product workspace at `dev/<namespace>-wl`. `renglo wl sync` looks under `dev/`, and at the workspace root, for a directory named `wl` or ending in `-wl`.
+
+```bash
+git clone git@github.com:<org>/<namespace>-wl.git dev/<namespace>-wl
+```
+
+**2. Give it a slot on the registry.** Add the short name to `publish_repos` and redeploy, the same gate as any other repo in this process. A list of `*` already trusts it. `renglo registry show` prints the three values every repo on this registry reuses.
+
+**3. Set the three Actions variables on `<namespace>-wl`.** Settings → Secrets and variables → Actions → Variables. The operator sets these. There is no handoff yet.
+
+
+| Variable               | Value                                                        |
+| ---------------------- | ------------------------------------------------------------ |
+| `AWS_PUBLISH_ROLE_ARN` | From `renglo registry show`                                  |
+| `PUBLISHER_NAME`       | The registry's short name, e.g. `ultrahost`                  |
+| `AWS_REGION`           | Region of the publisher stack, e.g. `us-east-1`              |
+
+
+**4. Copy the publish workflows and release the first version.** From the product workspace:
 
 ```bash
 renglo wl check
-renglo wl sync --dry-run
 renglo wl sync
 ```
 
-Those workflows also run on pushed `v*` tags and on manual dispatch, and they use the same three Actions variables. `publish-python.yml` builds the wheel, staging `locales/` and `assets/` through `wl_build.py`. `publish-npm.yml` publishes the npm package.
+That sync also rewrites a template name. A checkout `dev/<namespace>-wl` must publish Python `<namespace>-wl` and npm `@<namespace>/wl`; `renglo wl check` reports anything else, and `renglo wl sync` writes those names. It fills a missing platform pin from `renglo.yaml` at the same time. Commit the workflows and those package files in the `<namespace>-wl` repository. On `main`, set `version` in `pyproject.toml` and `package.json` to the version you are releasing. That choice is yours; keep the tag and both manifests on the same number. Commit, tag, and push:
+
+```bash
+git push origin main
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+The tag starts `publish-python.yml` and `publish-npm.yml`. Confirm both artifacts before the BOM is allowed to pin them:
+
+```bash
+renglo registry check <namespace>-wl X.Y.Z --registry registry.yaml
+renglo registry check @<namespace>/wl X.Y.Z --registry registry.yaml
+```
+
+Exit 0 and `result: published` on both means the pack is on the shelf. The platform packages (`renglo-lib`, `renglo-api`, `renglo-data`, `renglo-schd`, `@renglo/console`) stay on the `renglo` domain. This step publishes only the white-label pack.
+
+**5. Regenerate the BOM and deploy again.** `renglo bom setup` reads the registries and rewrites the current pin files, `bom/vX.Y.Z.json` and `console_bom/vX.Y.Z.json`, with the newest stable Published version of each package. The white-label packages are included now.
+
+```bash
+renglo bom setup
+```
+
+Commit those files in the BOM repository and push. The push starts Deploy Backend, which installs `<namespace>-wl` and `@<namespace>/wl` with the platform packages.
+
+```bash
+cd ops/<namespace>-bom
+git add renglo.yaml bom/ console_bom/
+git commit -m "Pin the white-label package"
+git push origin main
+```
+
+**Hand the repository to the developers.** The first version is published and the environment is deploying it. Further releases are Process 3: the developer bumps the version, tags `main`, and Actions publishes. The operator does not cut those tags.
 
 ### Optional: also publish to public PyPI or npmjs
 
@@ -296,6 +355,8 @@ renglo registry check renglo-data 1.0.1 --registry registry.yaml
 Exit 0 and `result: published` means that version is on the shelf. `result: absent` means it is not. A name that starts with `@` is checked as npm (`renglo registry check @renglo/data 1.0.1`). Pass `--format python` or `--format npm` when the name does not make that obvious. A leading `v` is ignored, so `v1.0.1` checks `1.0.1`, the version in the manifest rather than the tag string. The command uses the same registry path and AWS profile as `renglo registry show`.
 
 `renglo publish --path .` builds with `python -m build` and uploads with `twine` from this machine, and `--dry-run` prints those commands. The tag on the product repo is the path CI takes; the local command is for a package you are pushing by hand.
+
+The first `<namespace>-wl` release is not this loop. The operator publishes it once, in [Operator: publish the first `<namespace>-wl`](#operator-publish-the-first-namespace-wl), and regenerates the BOM so the Project 1 deploy picks the pack up. From the second version on, this section is the path.
 
 ---
 

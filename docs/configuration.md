@@ -145,7 +145,7 @@ The file is rejected without these, which is why `init` asks for all four:
 | `registries` | 2 | Every CodeArtifact domain this environment installs from, including foreign ones |
 | `packages` | 3 | Handle to package names: Python in CodeArtifact, npm scope package |
 | `placement.hub`, `placement.peers` | 3 | Whether each handle runs on the hub or on a named peer |
-| `github.owner_id`, `github.repo_id` | 4 | Immutable GitHub subjects for OIDC trust |
+| `github.owner_id`, `github.repo_id` | 1 | Immutable GitHub subjects. Stack deploy records them before it creates the OIDC role |
 | `release.bom`, `release.console` | 4 | Pins the pipeline deploys |
 
 ### What `init` writes
