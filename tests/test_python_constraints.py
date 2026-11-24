@@ -3,6 +3,7 @@ from pathlib import Path
 from renglo_ops.release.python_constraints import (
     canonical_name,
     constraints_path,
+    find_uv,
     locked_download_command,
     missing_bom_pins,
     parse_exact_pins,
@@ -43,6 +44,13 @@ def test_locked_download_does_not_resolve() -> None:
     assert "-r" in cmd
     assert "constraints/v0.1.17.txt" in cmd
     assert "pip" in cmd
+
+
+def test_find_uv_does_not_use_the_python_module() -> None:
+    found = find_uv()
+    if found is None:
+        return
+    assert found.endswith("/uv") or found == "uv"
 
 
 def test_render_is_sorted_and_names_when_it_is_written() -> None:

@@ -10,14 +10,19 @@ from __future__ import annotations
 
 import argparse
 import re
-import shutil
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
 
 from bom_manifest import load_bom, package_pins
-from python_constraints import canonical_name, constraints_path, parse_exact_pins, render_constraints
+from python_constraints import (
+    canonical_name,
+    constraints_path,
+    find_uv,
+    parse_exact_pins,
+    render_constraints,
+)
 
 _REQ_NAME = re.compile(r"^\s*([A-Za-z0-9_.-]+)")
 
@@ -103,11 +108,14 @@ def _compile_with_uv(
 ) -> list[tuple[str, str]]:
     if not requirements:
         return []
-    uv = [shutil.which("uv") or "uv"]
-    if shutil.which("uv") is None:
-        uv = [sys.executable, "-m", "uv"]
+    uv = find_uv()
+    if not uv:
+        raise SystemExit(
+            "uv is not installed. Install uv and rerun this command. "
+            "https://docs.astral.sh/uv/"
+        )
     cmd = [
-        *uv,
+        uv,
         "pip",
         "compile",
         "--python-version",

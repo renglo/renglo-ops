@@ -118,6 +118,33 @@ def configure_pip(registries: list[dict[str, Any]]) -> None:
         os.environ["PIP_EXTRA_INDEX_URL"] = " ".join(extras)
 
 
+def render_scoped_npmrc(registries: list[dict[str, Any]]) -> tuple[str, list[str]]:
+    """Project ``.npmrc`` text. Public packages stay on npmjs. Scopes use CodeArtifact.
+
+    The returned secrets are the raw tokens. Callers must not write them into a lock.
+    """
+    lines = ["registry=https://registry.npmjs.org/"]
+    secrets: list[str] = []
+    for entry in registries:
+        scopes = entry.get("npm_scopes") or []
+        if not scopes:
+            continue
+        endpoint = _repository_endpoint(entry, format_name="npm").rstrip("/") + "/"
+        token = _auth_token(entry)
+        secrets.append(token)
+        parsed = urlparse(endpoint)
+        host_path = f"//{parsed.netloc}{parsed.path}"
+        for scope in scopes:
+            scope_name = str(scope).strip()
+            if not scope_name:
+                continue
+            if not scope_name.startswith("@"):
+                scope_name = f"@{scope_name}"
+            lines.append(f"{scope_name}:registry={endpoint}")
+        lines.append(f"{host_path}:_authToken={token}")
+    return "\n".join(lines) + "\n", secrets
+
+
 def configure_npm(registries: list[dict[str, Any]]) -> None:
     if not registries:
         raise SystemExit("configure_codeartifact: registries list is empty")

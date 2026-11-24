@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import sys
 import tarfile
 import tempfile
 from pathlib import Path
@@ -34,6 +33,7 @@ from renglo_ops.release.configure_codeartifact import pip_extra_index_url
 from renglo_ops.release.python_constraints import (
     canonical_name,
     constraints_path,
+    find_uv,
     parse_exact_pins,
     render_constraints,
 )
@@ -95,8 +95,13 @@ def python_lock_text(
 
 
 def _resolve_with_uv(requirements: list[str], extra_args: list[str], secrets: list[str]) -> str:
-    uv = shutil.which("uv")
-    cmd = [uv] if uv else [sys.executable, "-m", "uv"]
+    uv = find_uv()
+    if not uv:
+        raise RengloOpsError(
+            "uv is not installed. Install uv and rerun renglo bom setup. "
+            "https://docs.astral.sh/uv/"
+        )
+    cmd = [uv]
     cmd.extend(
         [
             "pip",
