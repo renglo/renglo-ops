@@ -140,6 +140,59 @@ def test_setup_writes_pins_and_ids(tmp_path: Path) -> None:
     assert console["npm"]["@renglo/schd"] == "1.1.0"
     assert "owner_id" in path.read_text(encoding="utf-8")
     yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert not (tmp_path / "constraints").exists()
+
+
+def test_setup_publishes_the_dependency_locks(tmp_path: Path) -> None:
+    tenant = _tenant(platform="0.1.16", release_bom="0.1.0", release_console="0.1.0")
+    prepare_tenant(tenant)
+    (tmp_path / "renglo.yaml").write_text(dump_tenant(tenant), encoding="utf-8")
+    calls: list[dict] = []
+
+    def publisher(root: Path, written: dict) -> list[str]:
+        calls.append(written)
+        dest = root / "constraints" / "v0.0.1.txt"
+        dest.parent.mkdir()
+        dest.write_text("cognitojwt==1.4.1\n", encoding="utf-8")
+        console = root / "constraints" / "console" / "v0.0.1.package-lock.json"
+        console.parent.mkdir(parents=True)
+        console.write_text("{}\n", encoding="utf-8")
+        return [
+            "wrote constraints/v0.0.1.txt",
+            "wrote constraints/console/v0.0.1.package-lock.json",
+        ]
+
+    notes = setup_bom(
+        tmp_path,
+        lookup=lambda _repo: ("11", "22"),
+        versions=_published(),
+        publisher=publisher,
+    )
+    assert calls and Path(calls[0]["hub"]).name == "v0.0.1.json"
+    assert "wrote constraints/v0.0.1.txt" in notes
+    assert (tmp_path / "constraints" / "v0.0.1.txt").read_text(encoding="utf-8") == "cognitojwt==1.4.1\n"
+    assert (tmp_path / "constraints" / "console" / "v0.0.1.package-lock.json").is_file()
+
+
+def test_setup_dry_run_names_the_locks_without_writing_them(tmp_path: Path) -> None:
+    tenant = _tenant(platform="0.1.16", release_bom="0.1.0", release_console="0.1.0")
+    prepare_tenant(tenant)
+    (tmp_path / "renglo.yaml").write_text(dump_tenant(tenant), encoding="utf-8")
+
+    def publisher(root: Path, written: dict) -> list[str]:
+        raise AssertionError("dry-run must not resolve locks")
+
+    notes = setup_bom(
+        tmp_path,
+        lookup=lambda _repo: ("11", "22"),
+        versions=_published(),
+        dry_run=True,
+        publisher=publisher,
+    )
+    assert "would write constraints/v0.0.1.txt" in notes
+    assert "would write constraints/console/v0.0.1.package-lock.json" in notes
+    assert not (tmp_path / "bom").exists()
+    assert not (tmp_path / "constraints").exists()
 
 
 def test_release_candidate_versions() -> None:

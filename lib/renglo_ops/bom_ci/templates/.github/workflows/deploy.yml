@@ -162,11 +162,12 @@ jobs:
         if: ${{ steps.repos.outputs.has_python_pins == 'true' }}
         run: |
           set -euo pipefail
+          BOM="bom/v${{ needs.prepare_matrix.outputs.staging_bom }}.json"
+          CONSTRAINT="constraints/v${{ needs.prepare_matrix.outputs.staging_bom }}.txt"
           REGISTRIES="$(python -m renglo_ops.release render_deploy_matrix renglo.yaml --registries)"
           python -m renglo_ops.release configure_codeartifact --tool pip --registries-json "${REGISTRIES}"
-          python -m renglo_ops.release download_python_packages \
-            "bom/v${{ needs.prepare_matrix.outputs.staging_bom }}.json" \
-            --dest wheels
+          python .github/scripts/require_python_constraints.py "${BOM}" "${CONSTRAINT}"
+          python -m pip download --no-deps -d wheels -r "${CONSTRAINT}"
         env:
           CODEARTIFACT_DOMAIN: ${{ vars.CODEARTIFACT_DOMAIN }}
           CODEARTIFACT_DOMAIN_OWNER: ${{ vars.CODEARTIFACT_DOMAIN_OWNER }}
@@ -441,11 +442,12 @@ jobs:
         if: ${{ steps.repos.outputs.has_python_pins == 'true' }}
         run: |
           set -euo pipefail
+          BOM="bom/v${{ needs.prepare_matrix.outputs.production_bom }}.json"
+          CONSTRAINT="constraints/v${{ needs.prepare_matrix.outputs.production_bom }}.txt"
           REGISTRIES="$(python -m renglo_ops.release render_deploy_matrix renglo.yaml --registries --stage production)"
           python -m renglo_ops.release configure_codeartifact --tool pip --registries-json "${REGISTRIES}"
-          python -m renglo_ops.release download_python_packages \
-            "bom/v${{ needs.prepare_matrix.outputs.production_bom }}.json" \
-            --dest wheels
+          python .github/scripts/require_python_constraints.py "${BOM}" "${CONSTRAINT}"
+          python -m pip download --no-deps -d wheels -r "${CONSTRAINT}"
         env:
           CODEARTIFACT_DOMAIN: ${{ vars.CODEARTIFACT_DOMAIN }}
           CODEARTIFACT_DOMAIN_OWNER: ${{ vars.CODEARTIFACT_DOMAIN_OWNER }}

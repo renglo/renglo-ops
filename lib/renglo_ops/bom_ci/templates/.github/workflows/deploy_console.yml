@@ -197,27 +197,28 @@ jobs:
             echo "AMPLIFY_APP_ID=${AMPLIFY_APP_ID}"
           } >> "$GITHUB_ENV"
 
+      - name: Apply console lock
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.repos.outputs.has_npm_local }}" == "true" ]]; then
+            echo "The console lock does not cover local npm paths." >&2
+            exit 1
+          fi
+          VER="${{ matrix.stage == 'production' && needs.prepare_matrix.outputs.production_bom || needs.prepare_matrix.outputs.staging_bom }}"
+          python .github/scripts/apply_console_lock.py \
+            "console_bom/v${VER}.json" \
+            "constraints/console/v${VER}.package-lock.json" \
+            console
+
       - name: Build console
         working-directory: console
         run: |
           set -euo pipefail
-          if [[ ! -f package.json ]]; then
-            echo "console/ is missing package.json. Clone renglo/console or pin @renglo/console." >&2
+          if [[ ! -f package.json || ! -f package-lock.json ]]; then
+            echo "console/ is missing package.json or the BOM lock." >&2
             exit 1
           fi
-          if [[ -f package-lock.json ]]; then
-            npm ci
-          else
-            npm install
-          fi
-          if [[ "${{ steps.repos.outputs.has_npm_pins }}" == "true" ]]; then
-            # shellcheck disable=SC2086
-            npm install ${{ steps.repos.outputs.npm_specs }}
-          fi
-          if [[ "${{ steps.repos.outputs.has_npm_local }}" == "true" ]]; then
-            # shellcheck disable=SC2086
-            npm install ${{ steps.repos.outputs.npm_local_specs }}
-          fi
+          npm ci
           npm run build
 
       - name: Deploy to Amplify

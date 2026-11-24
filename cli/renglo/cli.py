@@ -1099,7 +1099,7 @@ def main(argv: list[str] | None = None) -> int:
     bom_wf_sync.add_argument("--dry-run", action="store_true")
     bom_setup = bom_sub.add_parser(
         "setup",
-        help="Fill platform packages, pin files, and GitHub ids in the BOM repo",
+        help="Fill platform packages, pin files, dependency locks, and GitHub ids in the BOM repo",
     )
     bom_setup.add_argument("--bom", default="", help="BOM repo root (default: resolved tenant)")
     bom_setup.add_argument("--dry-run", action="store_true")

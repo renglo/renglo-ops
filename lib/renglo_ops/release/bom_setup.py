@@ -1,10 +1,11 @@
-"""Fill a BOM checkout so the first deploy has a catalog, pins, and GitHub ids.
+"""Fill a BOM checkout so the first deploy has a catalog, pins, locks, and GitHub ids.
 
 ``renglo bom setup`` calls this. An empty ``renglo.yaml`` receives the platform
 packages (lib, api, console, ``<namespace>-wl``, data, schd), the two registries,
 and hub placement. Each package pin is the newest Published version that is not
 a release candidate. ``platform`` in the manifest is the checked-out
-``renglo-ops`` version. The first manifest is ``v0.0.1``.
+``renglo-ops`` version. The first manifest is ``v0.0.1``. The same step writes
+the dependency locks the deploy installs, resolved from those published pins.
 """
 
 from __future__ import annotations
@@ -319,6 +320,15 @@ def build_master(
     return master, catalog, placement
 
 
+def _lock_notes(version: str, placement: Any, *, dry_run: bool) -> list[str]:
+    stem = f"v{_strip_v(version)}"
+    verb = "would write" if dry_run else "wrote"
+    notes = [f"{verb} constraints/{stem}.txt", f"{verb} constraints/console/{stem}.package-lock.json"]
+    for peer_id in getattr(placement, "peers", {}) or {}:
+        notes.append(f"{verb} constraints/peers/{peer_id}/{stem}.txt")
+    return notes
+
+
 def write_manifests(
     bom_root: Path,
     tenant: Tenant,
@@ -326,6 +336,7 @@ def write_manifests(
     *,
     force: bool,
     dry_run: bool,
+    publisher: Callable[[Path, dict[str, Any]], list[str]] | None = None,
 ) -> list[str]:
     del force
     notes: list[str] = []
@@ -336,6 +347,7 @@ def write_manifests(
         file_name = f"v{version}.json"
         if dry_run:
             notes.append(f"would write bom/{file_name} and console_bom/{file_name}")
+            notes.extend(_lock_notes(version, placement, dry_run=True))
             continue
         _placement_type, write_split_boms = _layout()
         del _placement_type
@@ -349,6 +361,8 @@ def write_manifests(
         hub_rel = Path(written["hub"]).relative_to(bom_root).as_posix()
         console_rel = Path(written["console"]).relative_to(bom_root).as_posix()
         notes.append(f"wrote {hub_rel} and {console_rel}")
+        if publisher is not None:
+            notes.extend(publisher(bom_root, written))
     if not manifest_versions(tenant):
         notes.append("no release.bom or release.console version to pin")
     return notes
@@ -476,6 +490,7 @@ def setup_bom(
     codeartifact: Any = None,
     account_id: str = "",
     versions: dict[str, str] | None = None,
+    publisher: Callable[[Path, dict[str, Any]], list[str]] | None = None,
 ) -> list[str]:
     """Update ``renglo.yaml`` and write the pin files. Returns the lines to print."""
     del platform
@@ -537,7 +552,9 @@ def setup_bom(
         if first_bom:
             for stale in _other_manifests(bom_root, FIRST_BOM_VERSION):
                 notes.append(f"would remove {stale}")
-        notes.extend(write_manifests(bom_root, tenant, pins, force=force, dry_run=True))
+        notes.extend(
+            write_manifests(bom_root, tenant, pins, force=force, dry_run=True, publisher=publisher)
+        )
         return notes
     original = path.read_text(encoding="utf-8")
     starter = [
@@ -562,7 +579,21 @@ def setup_bom(
     if first_bom:
         for stale in remove_other_manifests(bom_root, FIRST_BOM_VERSION):
             notes.append(f"removed {stale}")
-    notes.extend(write_manifests(bom_root, tenant, pins, force=force, dry_run=False))
+    if publisher is None and codeartifact is not None:
+        from renglo_ops.release.publish_constraints import publish_bom_constraints
+
+        def publisher(root: Path, written: dict[str, Any]) -> list[str]:
+            return publish_bom_constraints(
+                root,
+                written,
+                tenant=tenant,
+                codeartifact=codeartifact,
+                account_id=account_id,
+            )
+
+    notes.extend(
+        write_manifests(bom_root, tenant, pins, force=force, dry_run=False, publisher=publisher)
+    )
     return notes
 
 

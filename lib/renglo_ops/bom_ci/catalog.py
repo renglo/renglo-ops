@@ -15,6 +15,8 @@ CANONICAL_REL_PATHS: tuple[str, ...] = (
     ".github/scripts/production_pins.py",
     ".github/scripts/staging_matrix.py",
     ".github/scripts/apply_cors_allowed.py",
+    ".github/scripts/require_python_constraints.py",
+    ".github/scripts/apply_console_lock.py",
 )
 
 

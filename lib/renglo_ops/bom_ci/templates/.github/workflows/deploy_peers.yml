@@ -196,14 +196,17 @@ jobs:
           CODEARTIFACT_DOMAIN: ${{ vars.CODEARTIFACT_DOMAIN }}
           CODEARTIFACT_DOMAIN_OWNER: ${{ vars.CODEARTIFACT_DOMAIN_OWNER }}
           HANDLERS_BOM_FILE: ${{ matrix.handlers_bom_file }}
-          HANDLERS_COMPUTE: ${{ matrix.handlers_compute }}
         run: |
           set -euo pipefail
           BOM="${HANDLERS_BOM_FILE}"
           REGISTRIES="$(python -m renglo_ops.release render_deploy_matrix renglo.yaml --registries)"
           python -m renglo_ops.release configure_codeartifact --tool pip --registries-json "${REGISTRIES}"
+          PEER="$(basename "$(dirname "${BOM}")")"
+          VERSION="$(basename "${BOM}" .json)"
+          CONSTRAINT="constraints/peers/${PEER}/${VERSION}.txt"
+          python .github/scripts/require_python_constraints.py "${BOM}" "${CONSTRAINT}"
           mkdir -p wheels
-          python -m renglo_ops.release download_python_packages "${BOM}" --dest wheels --sdist --no-deps
+          python -m pip download --no-deps -d wheels -r "${CONSTRAINT}"
           mapfile -t PIN_LINES < <(BOM_PATH="${BOM}" python - <<'PY'
           import os
           from pathlib import Path
@@ -222,25 +225,19 @@ jobs:
           fi
           echo "prepare packages (wheelhouse): ${ALL_PINS}"
           echo "build packages (install):      ${HANDLER_PACKAGES}"
-          PREPARE_ARGS=(--from-artifacts wheels --packages "${ALL_PINS}" --out .handlers-build)
-          if [[ "${HANDLERS_COMPUTE}" == "ecs" ]]; then
-            PREPARE_ARGS+=(--with-large-deps)
-          fi
+          PREPARE_ARGS=(--from-artifacts wheels --packages "${ALL_PINS}" --skip-deps --out .handlers-build)
           python -m renglo_ops.release prepare_handlers_wheelhouse "${PREPARE_ARGS[@]}"
+          for artifact in wheels/*; do
+            name="$(basename "${artifact}")"
+            if [[ ! -e ".handlers-build/wheelhouse/${name}" ]]; then
+              cp "${artifact}" .handlers-build/wheelhouse/
+            fi
+          done
           echo "HANDLER_PACKAGES=${HANDLER_PACKAGES}" >> "$GITHUB_ENV"
 
       - name: Build peer zip
         run: |
           set -euo pipefail
-          # The published packager installs with --no-index. Pip then builds
-          # sdists such as validate_email in an isolated env that cannot see
-          # the setuptools already installed in the image.
-          python -m pip download \
-            -d .handlers-build/wheelhouse \
-            --only-binary=:all: \
-            --index-url https://pypi.org/simple \
-            'setuptools>=40.8.0' \
-            wheel
           python -m renglo_ops.release peer_packager build \
             --env-name "${{ matrix.id }}" \
             --peer-id "${{ matrix.peer }}" \

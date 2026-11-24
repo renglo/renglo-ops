@@ -103,7 +103,7 @@ SECTIONS: list[Section] = [
             ),
             (
                 "renglo bom setup",
-                "Write the BOM, pin each package to its newest stable published version, and record the checked-out renglo-ops version.",
+                "Write the BOM and its dependency locks, pin each package to its newest stable published version, and record the checked-out renglo-ops version.",
             ),
         ],
     ),
@@ -189,7 +189,7 @@ SECTIONS: list[Section] = [
         [
             (
                 "renglo bom setup",
-                "Write the BOM, pin each package to its newest stable published version, and record the checked-out renglo-ops version.",
+                "Write the BOM and its dependency locks, pin each package to its newest stable published version, and record the checked-out renglo-ops version.",
             ),
             (
                 "renglo bom workflows check",
